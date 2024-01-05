@@ -1,4 +1,14 @@
 --!strict
+--[[
+    $ lune -- diff <oldFilePath> <newFilePath>
+
+    Generates a basic diff file between two `FontList.lua` files.
+
+    The diff file is written to `build/FontList.diff` and shows
+    only the additions and deletions between the two files; it
+    does not display modifications to existing fonts at this
+    time.
+]]
 local process = require("@lune/process")
 local luau = require("@lune/luau")
 local fs = require("@lune/fs")
