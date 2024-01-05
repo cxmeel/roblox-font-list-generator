@@ -106,6 +106,7 @@ local function FetchFontsFromServer(fontIds: { number })
 
 	-- Download each font as necessary
 	local fontList, numberRequests = {}, 0
+	local quantityReusedFromDisk = 0
 
 	logger.info("Downloading required cloud font metadata")
 
@@ -120,6 +121,7 @@ local function FetchFontsFromServer(fontIds: { number })
 			logger.debug("Downloaded", colors.bold(font.Name), "from", colors.blue(fileLocation))
 		else
 			logger.debug("Reused", colors.bold(font.Name), "from disk:", colors.blue(fileLocation))
+			quantityReusedFromDisk += 1
 		end
 
 		table.insert(fontList, font)
@@ -129,6 +131,9 @@ local function FetchFontsFromServer(fontIds: { number })
 			task.wait(RATE_LIMIT_INTERVAL)
 		end
 	end
+
+	logger.debug("Downloaded", colors.bold(numberRequests), "cloud fonts")
+	logger.debug("Reused", colors.bold(quantityReusedFromDisk), "cloud fonts from disk")
 
 	return fontList
 end
