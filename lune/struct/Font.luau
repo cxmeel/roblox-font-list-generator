@@ -5,9 +5,18 @@ local net = require("@lune/net")
 local Aliases = require("../data/Aliases")
 
 local colors = require("../utils/colors")
+local strings = require("../utils/strings")
 local ufs = require("../utils/ufs")
 
 type Set<T> = { [T]: boolean }
+
+export type IFont = {
+    ContentUri: string,
+    Name: string,
+    Aliases: { string },
+    Weights: { Enum.FontWeight },
+    Styles: { Enum.FontStyle },
+}
 
 local Font = {}
 Font.__index = Font
@@ -32,12 +41,13 @@ local FONT_STYLE_MAP = table.freeze({
 Font.WEIGHT = FONT_WEIGHT_MAP
 Font.STYLE = FONT_STYLE_MAP
 
-function Font.new(contentId: string, fontData: any)
+function Font.new(contentUri: string, fontData: any)
 	local self = setmetatable({}, Font)
-	local fileName = ufs.normalizePath(contentId):match("/*(.+)$")
+	local fileName = ufs.normalizePath(contentUri):match("/*(.+)$")
 
-	self.ContentId = contentId
-	self.Name = fontData.name
+	self.ContentUri = contentUri
+	self.Name = strings.trim(fontData.name)
+	self.SafeName = strings.fileNamify(self.Name):lower()
 	self.Aliases = fileName and Aliases[fileName] or {}
 	self.Weights = {}
 	self.Styles = {}
@@ -94,8 +104,9 @@ end
 function Font:ToString()
 	return table.concat({
 		`\{ Name = "{self.Name}"`,
+		`SafeName = "{self.SafeName}"`,
 		`Aliases = \{{#self.Aliases > 0 and ` {table.concat(self.Aliases, ", ")} ` or ""}}`,
-		`AssetId = "{self.ContentId}"`,
+		`ContentUri = "{self.ContentUri}"`,
 		`Weights = \{ {table.concat(self.Weights, ", ")} }`,
 		`Styles = \{ {table.concat(self.Styles, ", ")} } }`,
 	}, ", ")
