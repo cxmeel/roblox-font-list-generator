@@ -8,7 +8,7 @@
     only the additions and deletions between the two files; it
     does not display modifications to existing fonts at this
     time.
-]]
+--]]
 local process = require("@lune/process")
 local luau = require("@lune/luau")
 local fs = require("@lune/fs")
@@ -22,18 +22,12 @@ local Font = require("struct/font")
 local OLD_FILE_PATH = ufs.normalizePath(`{process.cwd}/{process.args[1]}`)
 local NEW_FILE_PATH = ufs.normalizePath(`{process.cwd}/{process.args[2]}`)
 
-function createRecursiveTable(): { [any]: any }
-    local recursiveTable = {}
-
-    local mt = {
+local function createRecursiveTable(): { [any]: any }
+    return setmetatable({}, {
         __index = function()
-            return createRecursiveTable()  -- Always return a new recursive table
+            return createRecursiveTable()
         end
-    }
-
-    setmetatable(recursiveTable, mt)
-
-    return recursiveTable :: any
+    }) :: any
 end
 
 local function validateProcessArguments()
