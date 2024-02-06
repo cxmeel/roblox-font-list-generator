@@ -91,7 +91,7 @@ local function FetchFontsFromServer(fontIds: { number })
 			headers = {
 				["Accept"] = "application/json",
 				["Content-Type"] = "application/json",
-				["Roblox-Place-Id"] = 0,
+				["Roblox-Place-Id"] = "0",
 				["Roblox-Browser-Asset-Request"] = "true",
 			},
 		})
