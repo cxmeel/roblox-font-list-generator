@@ -13,6 +13,7 @@ type Set<T> = { [T]: boolean }
 export type IFont = {
 	ContentUri: string,
 	Name: string,
+	SafeName: string,
 	Aliases: { string },
 	Weights: { Enum.FontWeight },
 	Styles: { Enum.FontStyle },

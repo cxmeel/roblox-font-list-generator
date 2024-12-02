@@ -31,6 +31,7 @@ local source = {
 export type IFont = {
     ContentUri: string,
     Name: string,
+	SafeName: string,
     Aliases: { string },
     Weights: { Enum.FontWeight },
     Styles: { Enum.FontStyle },
