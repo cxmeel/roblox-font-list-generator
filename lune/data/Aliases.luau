@@ -1,5 +1,5 @@
 --!strict
-return {
+local ALIASES = {
 	["ComicNeueAngular.json"] = {
 		"Comic Neue",
 	},
@@ -48,3 +48,5 @@ return {
 		"PT Sans Caption",
 	},
 }
+
+return ALIASES

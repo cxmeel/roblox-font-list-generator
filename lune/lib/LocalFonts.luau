@@ -8,21 +8,23 @@ local colors = require("../utils/colors")
 local logger = require("../utils/logger")
 local ufs = require("../utils/ufs")
 
-local STUDIO_VERSION_URL = "https://s3.amazonaws.com/setup.roblox.com/versionQTStudio"
+local ROBLOX_DEPLOY_HISTORY_URL = "https://s3.amazonaws.com/setup.roblox.com/DeployHistory.txt"
 local FONT_DATA_URL = "https://s3.amazonaws.com/setup.roblox.com/version-%s-content-fonts.zip"
 
-local function FetchCurrentStudioVersionHash()
+local function fetchCurrentStudioVersionHash()
 	logger.info("Fetching current studio version hash")
+	logger.debug("Fetching Roblox deployment history")
 
-	local response = net.request(STUDIO_VERSION_URL)
-	local versionHash = response.body:match("%x+$")
+	local response = net.request(ROBLOX_DEPLOY_HISTORY_URL)
+	local finalEntry = table.remove(response.body:split("\n"))
+	local versionHash = finalEntry:match("version%-(%x+)")
 
 	logger.debug("Current studio version hash:", colors.grey(versionHash))
 
 	return versionHash
 end
 
-local function FetchFontDataPackage(versionHash: string)
+local function fetchFontDataPackage(versionHash: string)
 	local url = FONT_DATA_URL:format(versionHash)
 
 	local ZIP_FILE_PATH = `temp/{versionHash}-fonts.zip`
@@ -44,9 +46,9 @@ local function FetchFontDataPackage(versionHash: string)
 	return EXTRACT_TO_PATH
 end
 
-local function FetchCurrentLocalFontList()
-	local versionHash = FetchCurrentStudioVersionHash()
-	local fontsDirPath = FetchFontDataPackage(versionHash)
+local function fetchCurrentLocalFontList()
+	local versionHash = fetchCurrentStudioVersionHash()
+	local fontsDirPath = fetchFontDataPackage(versionHash)
 
 	local fontList = {}
 	logger.info("Parsing font data")
@@ -71,5 +73,5 @@ local function FetchCurrentLocalFontList()
 end
 
 return {
-	fetchLocalFonts = FetchCurrentLocalFontList,
+	fetchLocalFonts = fetchCurrentLocalFontList,
 }

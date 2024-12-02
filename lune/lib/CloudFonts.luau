@@ -29,7 +29,7 @@ local function createBatches<T>(array: { T }, batchSize: number)
 	return batches
 end
 
-local function FetchCurrentRemoteFontIds()
+local function fetchCurrentRemoteFontIds()
 	local pageNumber, numberRequests = 0, 0
 	local fontIdSet = {}
 
@@ -67,7 +67,7 @@ local function FetchCurrentRemoteFontIds()
 	return fontIds
 end
 
-local function FetchFontsFromServer(fontIds: { number })
+local function fetchFontsFromServer(fontIds: { number })
 	-- Fetch CDN download URLs for each font
 	local fontIdBatches = createBatches(fontIds, BATCH_SIZE)
 	local fontCdnUrls = {}
@@ -138,9 +138,9 @@ local function FetchFontsFromServer(fontIds: { number })
 	return fontList
 end
 
-local function FetchCloudFonts()
-	local fontIds = FetchCurrentRemoteFontIds()
-	local fontList = FetchFontsFromServer(fontIds)
+local function fetchCloudFonts()
+	local fontIds = fetchCurrentRemoteFontIds()
+	local fontList = fetchFontsFromServer(fontIds)
 
 	logger.debug("Found", colors.bold(#fontList), "cloud fonts")
 
@@ -148,5 +148,5 @@ local function FetchCloudFonts()
 end
 
 return {
-	fetchCloudFonts = FetchCloudFonts,
+	fetchCloudFonts = fetchCloudFonts,
 }

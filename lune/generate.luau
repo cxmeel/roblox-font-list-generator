@@ -8,6 +8,15 @@ local colors = require("utils/colors")
 local logger = require("utils/logger")
 local ufs = require("utils/ufs")
 
+local FILE_EXTENSION = "luau"
+do
+	local extPos = table.find(process.args, "--ext")
+
+	if extPos then
+		FILE_EXTENSION = process.args[extPos + 1]
+	end
+end
+
 local localFonts = LocalFonts.fetchLocalFonts()
 local cloudFonts = CloudFonts.fetchCloudFonts()
 
@@ -32,7 +41,7 @@ local fonts: { IFont } = {
 }
 
 table.sort(localFonts, function(a, b)
-    return a.Name < b.Name
+	return a.Name < b.Name
 end)
 
 for _, font in localFonts do
@@ -42,7 +51,7 @@ end
 table.insert(source, "-- Cloud fonts --")
 
 table.sort(cloudFonts, function(a, b)
-    return a.Name < b.Name
+	return a.Name < b.Name
 end)
 
 for _, font in cloudFonts do
@@ -57,8 +66,8 @@ return fonts
 ]]
 )
 
-print("Writing font list to", colors.blue("build/FontList.lua"))
-ufs.writeFile("build/FontList.lua", table.concat(source, "\n"))
+print("Writing font list to", colors.blue(`build/FontList.{FILE_EXTENSION}`))
+ufs.writeFile(`build/FontList.{FILE_EXTENSION}`, table.concat(source, "\n"))
 
 logger.info("Formatting font list with stylua")
 logger.debug("Config path:", colors.blue(".generated.stylua.toml"))

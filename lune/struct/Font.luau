@@ -11,11 +11,11 @@ local ufs = require("../utils/ufs")
 type Set<T> = { [T]: boolean }
 
 export type IFont = {
-    ContentUri: string,
-    Name: string,
-    Aliases: { string },
-    Weights: { Enum.FontWeight },
-    Styles: { Enum.FontStyle },
+	ContentUri: string,
+	Name: string,
+	Aliases: { string },
+	Weights: { Enum.FontWeight },
+	Styles: { Enum.FontStyle },
 }
 
 local Font = {}
