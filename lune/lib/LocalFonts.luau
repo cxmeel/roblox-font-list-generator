@@ -27,8 +27,8 @@ end
 local function fetchFontDataPackage(versionHash: string)
 	local url = FONT_DATA_URL:format(versionHash)
 
-	local ZIP_FILE_PATH = `temp/{versionHash}-fonts.zip`
-	local EXTRACT_TO_PATH = `temp/{versionHash}-fonts`
+	local ZIP_FILE_PATH = `{process.cwd}/temp/{versionHash}-fonts.zip`
+	local EXTRACT_TO_PATH = `{process.cwd}/temp/{versionHash}-fonts`
 
 	if not fs.isFile(ZIP_FILE_PATH) then
 		logger.info("Downloading font data package")
