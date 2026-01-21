@@ -56,6 +56,21 @@ local function fetchFontDataPackage(versionHash: string)
 	return EXTRACT_TO_PATH
 end
 
+local function listDirRecursively(dirPath: string, indent: string)
+	local result = ""
+
+	for _, entry in fs.readDir(dirPath) do
+		local entryPath = `{dirPath}/{entry}`
+		result ..= indent .. entry .. "\n"
+
+		if fs.isDir(entryPath) then
+			result ..= listDirRecursively(entryPath, indent .. "  ")
+		end
+	end
+
+	return result
+end
+
 local function fetchCurrentLocalFontList()
 	local versionHash = fetchCurrentStudioVersionHash()
 	local fontsDirPath = fetchFontDataPackage(versionHash)
@@ -64,6 +79,9 @@ local function fetchCurrentLocalFontList()
 	logger.info("Parsing font data")
 
 	if not fs.isDir(`{fontsDirPath}/families`) then
+		local tempDirStructure = listDirRecursively("temp", "")
+
+		logger.debug(`Temp directory structure:\n{tempDirStructure}`)
 		error("Font data package is missing 'families' directory")
 	end
 
