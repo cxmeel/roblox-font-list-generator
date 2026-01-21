@@ -79,9 +79,9 @@ local function fetchCurrentLocalFontList()
 	logger.info("Parsing font data")
 
 	if not fs.isDir(`{fontsDirPath}/families`) then
-		local tempDirStructure = listDirRecursively("temp", "")
+		-- local tempDirStructure = listDirRecursively("temp", "")
+		-- logger.debug(`Temp directory structure:\n{tempDirStructure}`)
 
-		logger.debug(`Temp directory structure:\n{tempDirStructure}`)
 		error("Font data package is missing 'families' directory")
 	end
 
