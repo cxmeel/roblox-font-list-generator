@@ -45,7 +45,7 @@ Font.STYLE = FONT_STYLE_MAP
 
 function Font.new(contentUri: string, fontData: any)
 	local self = setmetatable({}, Font)
-	local fileName = ufs.normalizePath(contentUri):match("/*(.+)$")
+	local fileName = ufs.normalizePath(contentUri):match("([^/]+)$")
 
 	self.ContentUri = contentUri
 	self.Name = strings.trim(fontData.name)
@@ -104,10 +104,16 @@ function Font.fromFile(fullPath: string)
 end
 
 function Font:ToString()
+	local aliases = {}
+
+	for _, alias in self.Aliases do
+		table.insert(aliases, `"{alias}"`)
+	end
+
 	return table.concat({
 		`\{ Name = "{self.Name}"`,
 		`SafeName = "{self.SafeName}"`,
-		`Aliases = \{{#self.Aliases > 0 and ` {table.concat(self.Aliases, ", ")} ` or ""}}`,
+		`Aliases = \{ {table.concat(aliases, ", ")} }`,
 		`ContentUri = "{self.ContentUri}"`,
 		`Weights = \{ {table.concat(self.Weights, ", ")} }`,
 		`Styles = \{ {table.concat(self.Styles, ", ")} } }`,
