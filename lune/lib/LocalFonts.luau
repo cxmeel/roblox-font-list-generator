@@ -27,16 +27,21 @@ end
 local function fetchFontDataPackage(versionHash: string)
 	local url = FONT_DATA_URL:format(versionHash)
 
-	local ZIP_FILE_PATH = `{process.cwd}/temp/{versionHash}-fonts.zip`
-	local EXTRACT_TO_PATH = `{process.cwd}/temp/{versionHash}-fonts`
+	local ZIP_FILE_PATH = `temp/{versionHash}-fonts.zip`
+	local EXTRACT_TO_PATH = `temp/{versionHash}-fonts`
 
 	if not fs.isFile(ZIP_FILE_PATH) then
 		logger.info("Downloading font data package")
 		local httpResponse = net.request(url)
 
 		logger.info("Writing font data package to disk")
+
 		ufs.unlink(ZIP_FILE_PATH, EXTRACT_TO_PATH)
 		ufs.writeFile(ZIP_FILE_PATH, httpResponse.body)
+
+		logger.debug("Downloaded font data package to:", colors.blue(ZIP_FILE_PATH))
+	else
+		logger.info("Font data package already downloaded:", colors.blue(ZIP_FILE_PATH))
 	end
 
 	logger.info("Extracting font data package.")
@@ -57,6 +62,10 @@ local function fetchCurrentLocalFontList()
 
 	local fontList = {}
 	logger.info("Parsing font data")
+
+	if not fs.isDir(`${fontsDirPath}/families`) then
+		error("Font data package is missing 'families' directory")
+	end
 
 	for _, fileName in fs.readDir(`{fontsDirPath}/families`) do
 		local fontFilePath = `{fontsDirPath}/families/{fileName}`
