@@ -13,11 +13,11 @@ local fs = require("@lune/fs")
 local luau = require("@lune/luau")
 local process = require("@lune/process")
 
-local colors = require("utils/colors")
-local logger = require("utils/logger")
-local ufs = require("utils/ufs")
+local colors = require("./utils/colors")
+local logger = require("./utils/logger")
+local ufs = require("./utils/ufs")
 
-local Font = require("struct/font")
+local Font = require("./struct/font")
 
 local OLD_FILE_PATH = ufs.normalizePath(`{process.cwd}/{process.args[1]}`)
 local NEW_FILE_PATH = ufs.normalizePath(`{process.cwd}/{process.args[2]}`)
@@ -32,7 +32,7 @@ end
 
 local function validateProcessArguments()
 	if typeof(OLD_FILE_PATH) ~= "string" or typeof(NEW_FILE_PATH) ~= "string" then
-		logger.error("Usage: lune -- diff <oldFilePath> <newFilePath>")
+		logger.error("Usage: lune run diff <oldFilePath> <newFilePath>")
 		process.exit(1)
 	end
 
@@ -64,11 +64,15 @@ local function generateDiffArrays()
 	local newFileBytecode = luau.compile(newFileContent)
 
 	local oldFontList = luau.load(oldFileBytecode, {
-		environment = createRecursiveTable(),
+		environment = {
+			Enum = createRecursiveTable(),
+		},
 	})() :: { Font.IFont }
 
 	local newFontList = luau.load(newFileBytecode, {
-		environment = createRecursiveTable(),
+		environment = {
+			Enum = createRecursiveTable(),
+		},
 	})() :: { Font.IFont }
 
 	local additions = {} :: { Font.IFont }

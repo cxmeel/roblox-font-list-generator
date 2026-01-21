@@ -5,16 +5,16 @@ fonts.
 
 ## Usage
 
-You'll need to have [Aftman](https://github.com/LPGhatguy/aftman) installed.
+You'll need to have [Rokit](https://github.com/rojo-rbx/rokit) installed.
 This is a toolchain manager and will automatically install the required
 tools for this project ([Lune](https://github.com/filiptibell/lune) and
 [StyLua](https://github.com/johnnymorganz/stylua)).
 
-Once you have Aftman installed, you can run the following command to install
+Once you have Rokit installed, you can run the following command to install
 the required tools:
 
 ```sh
-aftman install
+rokit install
 ```
 
 Then, you can run the following command to generate the font list:

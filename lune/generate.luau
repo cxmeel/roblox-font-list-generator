@@ -1,12 +1,12 @@
 --!strict
 local process = require("@lune/process")
 
-local CloudFonts = require("lib/CloudFonts")
-local LocalFonts = require("lib/LocalFonts")
+local CloudFonts = require("./lib/CloudFonts")
+local LocalFonts = require("./lib/LocalFonts")
 
-local colors = require("utils/colors")
-local logger = require("utils/logger")
-local ufs = require("utils/ufs")
+local colors = require("./utils/colors")
+local logger = require("./utils/logger")
+local ufs = require("./utils/ufs")
 
 local FILE_EXTENSION = "luau"
 do
@@ -72,6 +72,6 @@ ufs.writeFile(`build/FontList.{FILE_EXTENSION}`, table.concat(source, "\n"))
 
 logger.info("Formatting font list with stylua")
 logger.debug("Config path:", colors.blue(".generated.stylua.toml"))
-process.spawn("stylua", { "build/", "--config-path", ".generated.stylua.toml" })
+process.exec("stylua", { "build/", "--config-path", ".generated.stylua.toml" })
 
 print(colors.green.bold.inverse(" SUCCESS "), "Font list generated successfully! 🎉")

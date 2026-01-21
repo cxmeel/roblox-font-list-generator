@@ -1,0 +1,103 @@
+name: Update Font List
+
+on:
+  schedule:
+    - cron: '0 0 */3 * *'
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  update-font-list:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Rokit
+        uses: CompeyDev/setup-rokit@v0.1.2
+
+      - name: Restore temp/ cache
+        uses: actions/cache@v3
+        with:
+          path: temp/
+          key: temp-cache-v1-${{ runner.os }}-${{ hashFiles('**/rokit.lock') }}
+          restore-keys: |
+            temp-cache-v1-${{ runner.os }}-
+
+      - name: Download last release
+        id: download_release
+        uses: robinraju/release-downloader@v1
+        with:
+          latest: true
+          fileName: FontList.luau
+        continue-on-error: true
+
+      - name: Prepare old font list
+        run: |
+          if [ -f FontList.luau ]; then
+            mkdir -p build
+            mv FontList.luau build/OldFontList.luau
+          fi
+
+      - name: Install rokit dependencies
+        run: rokit install
+
+      - name: Update Font List
+        run: lune run generate -- -vv
+
+      - name: Save temp/ cache
+        uses: actions/cache@v3
+        with:
+          path: temp/
+          key: temp-cache-v1-${{ runner.os }}-${{ hashFiles('**/rokit.lock') }}
+          restore-keys: |
+            temp-cache-v1-${{ runner.os }}-
+          expire-after: 7 days
+
+      - name: Create diff file
+        run: |
+          if [ -f build/OldFontList.luau ]; then
+            lune run diff build/OldFontList.luau build/FontList.luau > build/FontList.diff
+          else
+            echo "No previous release found; skipping diff generation."
+          fi
+
+      - name: Check for changes
+        id: check_changes
+        run: |
+          if [ -f build/FontList.diff ] && [ -s build/FontList.diff ]; then
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "No changes detected in FontList.luau; skipping release creation."
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get diff content
+        id: get_diff
+        if: steps.check_changes.outputs.has_changes == 'true'
+        run: |
+          DIFF_CONTENT=$(cat build/FontList.diff)
+          echo "diff_content<<EOF" >> $GITHUB_OUTPUT
+          echo "${DIFF_CONTENT}" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create tag
+        id: create_tag
+        if: steps.check_changes.outputs.has_changes == 'true'
+        run: |
+          TAG="v$(date +'%Y.%m.%d')"
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+
+      - name: Create new release
+        if: steps.check_changes.outputs.has_changes == 'true'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.create_tag.outputs.tag }}
+          name: ${{ steps.create_tag.outputs.tag }}
+          body: |
+            ## Changes
+            ${{ steps.get_diff.outputs.diff_content }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

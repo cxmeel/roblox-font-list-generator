@@ -1,4 +1,5 @@
 local net = require("@lune/net")
+local serde = require("@lune/serde")
 local task = require("@lune/task")
 
 local Font = require("../struct/Font")
@@ -37,7 +38,7 @@ local function fetchCurrentRemoteFontIds()
 
 	while true do
 		local response = net.request(FONT_TOOLBOX_URL:format(pageNumber))
-		local data = net.jsonDecode(response.body)
+		local data = serde.decode("json", response.body)
 
 		pageNumber += 1
 		numberRequests += 1
@@ -87,7 +88,7 @@ local function fetchFontsFromServer(fontIds: { number })
 		local response = net.request({
 			url = BATCH_ASSET_URL,
 			method = "POST",
-			body = net.jsonEncode(assetRequestItems),
+			body = serde.encode("json", assetRequestItems),
 			headers = {
 				["Accept"] = "application/json",
 				["Content-Type"] = "application/json",
@@ -96,7 +97,7 @@ local function fetchFontsFromServer(fontIds: { number })
 			},
 		})
 
-		local data = net.jsonDecode(response.body)
+		local data = serde.decode("json", response.body)
 
 		for _, cdnAssetResult in ipairs(data) do
 			local fontId = tonumber(cdnAssetResult.requestId)

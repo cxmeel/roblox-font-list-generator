@@ -40,7 +40,7 @@ local function fetchFontDataPackage(versionHash: string)
 	end
 
 	logger.info("Extracting font data package.")
-	process.spawn("7z", { "x", `-o{EXTRACT_TO_PATH}`, ZIP_FILE_PATH })
+	process.exec("7z", { "x", `-o{EXTRACT_TO_PATH}`, ZIP_FILE_PATH })
 
 	logger.debug("Extracted font data package to:", colors.blue(EXTRACT_TO_PATH))
 	return EXTRACT_TO_PATH

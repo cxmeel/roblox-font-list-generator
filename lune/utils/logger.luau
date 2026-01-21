@@ -1,10 +1,10 @@
 --!strict
 local process = require("@lune/process")
 
-local colors = require("colors")
+local colors = require("./colors")
 
 local args = table.concat(process.args, " ")
-local noop = function(...) end :: any
+local noop = function() end :: any
 
 local isVerbose = args:find("%-%-verbose") or args:find("%-v+")
 local verbosity = isVerbose and 1 or 0

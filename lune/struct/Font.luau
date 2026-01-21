@@ -1,6 +1,7 @@
 --!strict
 local fs = require("@lune/fs")
 local net = require("@lune/net")
+local serde = require("@lune/serde")
 
 local Aliases = require("../data/Aliases")
 
@@ -80,13 +81,13 @@ function Font.fromURL(assetId: number, url: string)
 
 	if fs.isFile(filePath) then
 		local fontFileContent = fs.readFile(filePath)
-		fontFile = net.jsonDecode(fontFileContent)
+		fontFile = serde.decode("json", fontFileContent)
 		isReusedFromDisk = true
 	else
 		local cdnAssetResponse = net.request(url)
 		ufs.writeFile(filePath, cdnAssetResponse.body)
 
-		fontFile = net.jsonDecode(cdnAssetResponse.body)
+		fontFile = serde.decode("json", cdnAssetResponse.body)
 	end
 
 	return Font.new(`rbxassetid://{assetId}`, fontFile), isReusedFromDisk, isReusedFromDisk and filePath or url
@@ -97,7 +98,7 @@ function Font.fromFile(fullPath: string)
 	assert(fontFileName, `{colors.bold("Invalid font file path:")} {fullPath}`)
 
 	local fontFileContents = fs.readFile(fullPath)
-	local fontFile = net.jsonDecode(fontFileContents)
+	local fontFile = serde.decode("json", fontFileContents)
 
 	return Font.new(`rbxasset://fonts/families/{fontFileName}`, fontFile)
 end
