@@ -63,7 +63,7 @@ local function fetchCurrentLocalFontList()
 	local fontList = {}
 	logger.info("Parsing font data")
 
-	if not fs.isDir(`${fontsDirPath}/families`) then
+	if not fs.isDir(`{fontsDirPath}/families`) then
 		error("Font data package is missing 'families' directory")
 	end
 
