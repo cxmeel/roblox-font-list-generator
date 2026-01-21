@@ -46,7 +46,7 @@ local function fetchFontDataPackage(versionHash: string)
 
 	logger.info("Extracting font data package.")
 
-	local extractResult = process.exec("7z", { "x", `-o{EXTRACT_TO_PATH}`, ZIP_FILE_PATH })
+	local extractResult = process.exec("7z", { "x", `-o{EXTRACT_TO_PATH}`, `{process.cwd}{ZIP_FILE_PATH}` })
 
 	if extractResult.code ~= 0 then
 		error(`Failed to extract font data package: {extractResult.stderr}`)
