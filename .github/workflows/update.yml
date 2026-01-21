@@ -95,4 +95,4 @@ jobs:
           body: |
             ## Changes
             ${{ steps.get_diff.outputs.diff_content }}
-          files: build/FontList.luau
+          files: build/FontList.luau, build/FontList.json

@@ -1,5 +1,6 @@
 --!strict
 local process = require("@lune/process")
+local serde = require("@lune/serde")
 
 local CloudFonts = require("./lib/CloudFonts")
 local LocalFonts = require("./lib/LocalFonts")
@@ -74,4 +75,18 @@ logger.info("Formatting font list with stylua")
 logger.debug("Config path:", colors.blue(".generated.stylua.toml"))
 process.exec("stylua", { "build/", "--config-path", ".generated.stylua.toml" })
 
-print(colors.green.bold.inverse(" SUCCESS "), "Font list generated successfully! 🎉")
+print("Writing JSON font list to", colors.blue("build/FontList.json"))
+
+local jsonFontList = {}
+
+for _, font in localFonts do
+	table.insert(jsonFontList, font:ToDictionary())
+end
+
+for _, font in cloudFonts do
+	table.insert(jsonFontList, font:ToDictionary())
+end
+
+ufs.writeFile("build/FontList.json", serde.encode("json", jsonFontList))
+
+print(colors.green.bold.inverse(" SUCCESS "), "Font lists generated successfully! 🎉")

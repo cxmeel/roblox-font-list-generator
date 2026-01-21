@@ -114,4 +114,27 @@ function Font:ToString()
 	}, ", ")
 end
 
+function Font:ToDictionary()
+	local font = {
+		ContentUri = self.ContentUri,
+		Name = self.Name,
+		SafeName = self.SafeName,
+		Aliases = self.Aliases,
+		Weights = self.Weights,
+		Styles = self.Styles,
+	}
+
+	for index, value in font.Weights do
+		local weight = table.remove(value:split("."))
+		font.Weights[index] = weight
+	end
+
+	for index, value in font.Styles do
+		local style = table.remove(value:split("."))
+		font.Styles[index] = style
+	end
+
+	return font
+end
+
 return Font
