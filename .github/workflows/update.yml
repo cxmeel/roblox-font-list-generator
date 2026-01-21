@@ -35,14 +35,12 @@ jobs:
         continue-on-error: true
 
       - name: Prepare old font list
+        shell: bash
         run: |
           if [ -f FontList.luau ]; then
             mkdir -p build
             mv FontList.luau build/OldFontList.luau
           fi
-
-      # - name: Install rokit dependencies
-      #   run: rokit install
 
       - name: Update Font List
         run: lune run generate -- -vv
@@ -57,6 +55,7 @@ jobs:
           expire-after: 7 days
 
       - name: Create diff file
+        shell: bash
         run: |
           if [ -f build/OldFontList.luau ]; then
             lune run diff build/OldFontList.luau build/FontList.luau > build/FontList.diff
@@ -66,6 +65,7 @@ jobs:
 
       - name: Check for changes
         id: check_changes
+        shell: bash
         run: |
           if [ -f build/FontList.diff ] && [ -s build/FontList.diff ]; then
             echo "has_changes=true" >> $GITHUB_OUTPUT
@@ -77,6 +77,7 @@ jobs:
       - name: Get diff content
         id: get_diff
         if: steps.check_changes.outputs.has_changes == 'true'
+        shell: bash
         run: |
           DIFF_CONTENT=$(cat build/FontList.diff)
           echo "diff_content<<EOF" >> $GITHUB_OUTPUT
@@ -86,6 +87,7 @@ jobs:
       - name: Create tag
         id: create_tag
         if: steps.check_changes.outputs.has_changes == 'true'
+        shell: bash
         run: |
           TAG="v$(date +'%Y.%m.%d')"
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
