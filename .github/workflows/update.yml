@@ -41,8 +41,8 @@ jobs:
             mv FontList.luau build/OldFontList.luau
           fi
 
-      - name: Install rokit dependencies
-        run: rokit install
+      # - name: Install rokit dependencies
+      #   run: rokit install
 
       - name: Update Font List
         run: lune run generate -- -vv
