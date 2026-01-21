@@ -56,6 +56,7 @@ jobs:
           elif [ -f build/FontList.diff ] && [ -s build/FontList.diff ]; then
             echo "Changes detected in FontList.luau."
             echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "has_diff=true" >> $GITHUB_OUTPUT
           else
             echo "No changes detected in FontList.luau; skipping release creation."
             echo "has_changes=false" >> $GITHUB_OUTPUT
@@ -63,7 +64,7 @@ jobs:
 
       - name: Get diff content
         id: get_diff
-        if: steps.check_changes.outputs.has_changes == 'true'
+        if: steps.check_changes.outputs.has_diff == 'true'
         shell: bash
         run: |
           DIFF_CONTENT=$(cat build/FontList.diff)
