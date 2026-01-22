@@ -47,7 +47,7 @@ jobs:
         shell: bash
         run: |
           if [ -f build/OldFontList.luau ]; then
-            lune run diff build/OldFontList.luau build/FontList.luau > build/FontList.diff
+            lune run diff build/OldFontList.luau build/FontList.luau -- -vv
           else
             echo "No previous release found; skipping diff generation."
           fi
