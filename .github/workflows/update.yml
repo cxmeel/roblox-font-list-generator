@@ -8,8 +8,9 @@ on:
     inputs:
       force:
         description: 'Force update even if no changes detected'
+        type: boolean
         required: false
-        default: 'false'
+        default: false
   push:
     branches:
       - main
