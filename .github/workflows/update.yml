@@ -5,6 +5,11 @@ on:
     - cron: '0 0 */3 * *'
     - cron: '0 3 * * 4'
   workflow_dispatch:
+    inputs:
+      force:
+        description: 'Force update even if no changes detected'
+        required: false
+        default: 'false'
   push:
     branches:
       - main
@@ -81,14 +86,14 @@ jobs:
 
       - name: Create tag
         id: create_tag
-        if: steps.check_changes.outputs.has_changes == 'true'
+        if: steps.check_changes.outputs.has_changes == 'true' || github.event.inputs.force == 'true'
         shell: bash
         run: |
           TAG="v$(date +'%Y.%m.%d')"
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
 
       - name: Create new release
-        if: steps.check_changes.outputs.has_changes == 'true'
+        if: steps.check_changes.outputs.has_changes == 'true' || github.event.inputs.force == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.create_tag.outputs.tag }}
@@ -96,4 +101,6 @@ jobs:
           body: |
             ## Changes
             ${{ steps.get_diff.outputs.diff_content }}
-          files: build/FontList.luau, build/FontList.json
+          files: |
+            build/FontList.luau
+            build/FontList.json
