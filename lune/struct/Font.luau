@@ -14,7 +14,7 @@ type Set<T> = { [T]: boolean }
 export type IFont = {
 	ContentUri: string,
 	Name: string,
-	SafeName: string,
+	PostScript: string,
 	Aliases: { string },
 	Weights: { Enum.FontWeight },
 	Styles: { Enum.FontStyle },
@@ -49,7 +49,7 @@ function Font.new(contentUri: string, fontData: any)
 
 	self.ContentUri = contentUri
 	self.Name = strings.trim(fontData.name)
-	self.SafeName = strings.fileNamify(self.Name):lower()
+	self.PostScript = strings.fileNamify(self.Name):lower()
 	self.Aliases = fileName and Aliases[fileName] or {}
 	self.Weights = {}
 	self.Styles = {}
@@ -112,7 +112,7 @@ function Font:ToString()
 
 	return table.concat({
 		`\{ Name = "{self.Name}"`,
-		`SafeName = "{self.SafeName}"`,
+		`PostScript = "{self.PostScript}"`,
 		`Aliases = \{ {table.concat(aliases, ", ")} }`,
 		`ContentUri = "{self.ContentUri}"`,
 		`Weights = \{ {table.concat(self.Weights, ", ")} }`,
@@ -124,7 +124,7 @@ function Font:ToDictionary()
 	local font = {
 		ContentUri = self.ContentUri,
 		Name = self.Name,
-		SafeName = self.SafeName,
+		PostScript = self.PostScript,
 		Aliases = self.Aliases,
 		Weights = self.Weights,
 		Styles = self.Styles,
