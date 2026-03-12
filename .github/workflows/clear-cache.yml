@@ -4,12 +4,22 @@ on:
   schedule:
     - cron: '0 0 * * 0'
   workflow_dispatch:
-  
+
 jobs:
   clear-cache:
     runs-on: ubuntu-latest
     steps:
+      - name: Check cache exists
+        id: check-cache-exists
+        run: |
+          if gh cache list -k 'temp-dir' | grep -q 'temp-dir'; then
+            echo 'cache_exists=true' >> $GITHUB_OUTPUT
+          else
+            echo 'cache_exists=false' >> $GITHUB_OUTPUT
+          fi
+
       - name: Delete font list cache
-        run: gh cache delete temp-dir --confirm
+        if: steps.check-cache-exists.outputs.cache_exists == 'true'
+        run: gh cache delete 'temp-dir'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
