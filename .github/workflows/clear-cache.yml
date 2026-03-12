@@ -9,6 +9,11 @@ jobs:
   clear-cache:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: .git
+
       - name: Check cache exists
         id: check-cache-exists
         run: |
