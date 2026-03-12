@@ -17,6 +17,8 @@ jobs:
           else
             echo 'cache_exists=false' >> $GITHUB_OUTPUT
           fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Delete font list cache
         if: steps.check-cache-exists.outputs.cache_exists == 'true'
