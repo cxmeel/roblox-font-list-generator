@@ -8,6 +8,8 @@ local colors = require("../utils/colors")
 local logger = require("../utils/logger")
 local ufs = require("../utils/ufs")
 
+local BACKUP_VERSION_HASH_URL =
+	"https://github.com/MaximumADHD/Roblox-Client-Tracker/raw/refs/heads/roblox/version-guid.txt"
 local ROBLOX_DEPLOY_HISTORY_URL = "https://s3.amazonaws.com/setup.roblox.com/DeployHistory.txt"
 local FONT_DATA_URL = "https://s3.amazonaws.com/setup.roblox.com/version-%s-content-fonts.zip"
 
@@ -18,6 +20,17 @@ local function fetchCurrentStudioVersionHash()
 	local response = net.request(ROBLOX_DEPLOY_HISTORY_URL)
 	local finalEntry = table.remove(response.body:split("\n"))
 	local versionHash = finalEntry:match("version%-(%x+)")
+
+	if not versionHash then
+		logger.warn("Failed to parse version hash from deployment history, falling back to backup URL")
+
+		local backupResponse = net.request(BACKUP_VERSION_HASH_URL)
+		versionHash = backupResponse.body:match("version%-(%x+)")
+
+		if not versionHash then
+			error("Failed to parse version hash from backup URL")
+		end
+	end
 
 	logger.debug("Current studio version hash:", colors.grey(versionHash))
 
