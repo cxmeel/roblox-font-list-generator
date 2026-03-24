@@ -1,6 +1,11 @@
 [package]
 name = "cxmeel/font-list"
 version = "{{version}}"
+description = """\
+An automatically updated list of available local and cloud fonts.
+
+https://github.com/cxmeel/roblox-font-list-generator\
+"""
 registry = "https://github.com/UpliftGames/wally-index"
 realm = "shared"
 exclude = ["temp", "lune"]
