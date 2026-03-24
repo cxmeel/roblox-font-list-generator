@@ -105,3 +105,24 @@ jobs:
           files: |
             build/FontList.luau
             build/FontList.json
+
+      - name: Publish to Wally
+        if: steps.check_changes.outputs.has_changes == 'true' || github.event.inputs.force == 'true'
+        run: |
+          # Create a new wally.toml from the template
+          cp .generated.wally.toml wally.toml
+
+          # Extract version number from the tag
+          VERSION="${{ steps.create_tag.outputs.tag }}"
+
+          # Remove the leading "v"
+          VERSION="${VERSION#v}"
+
+          # Remove leading zeros from the version number
+          VERSION=$(echo $VERSION | sed -E 's/\.0+/\./g')
+
+          # Replace the version placeholder in wally.toml
+          sed -i "s/{{version}}/${VERSION}/g" wally.toml
+
+          # Publish to Wally
+          wally publish --token ${{ secrets.WALLY_TOKEN }}
