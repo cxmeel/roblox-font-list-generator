@@ -108,6 +108,7 @@ jobs:
 
       - name: Publish to Wally
         if: steps.check_changes.outputs.has_changes == 'true' || github.event.inputs.force == 'true'
+        shell: bash
         run: |
           # Create a new wally.toml from the template
           cp .generated.wally.toml wally.toml
