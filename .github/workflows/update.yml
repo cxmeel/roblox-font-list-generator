@@ -126,4 +126,6 @@ jobs:
           sed -i "s/{{version}}/${VERSION}/g" wally.toml
 
           # Publish to Wally
-          wally publish --token ${{ secrets.WALLY_TOKEN }}
+          mkdir -p ~/.wally
+          printf "[tokens]\n\"https://api.wally.run/\" = \"%s\"" "${{ secrets.WALLY_TOKEN }}" >> ~/.wally/auth.toml
+          wally publish
