@@ -69,48 +69,165 @@ jobs:
           elif [ -f build/FontList.diff ] && [ -s build/FontList.diff ]; then
             echo "Changes detected in FontList.luau."
             echo "has_changes=true" >> $GITHUB_OUTPUT
-            echo "has_diff=true" >> $GITHUB_OUTPUT
           else
             echo "No changes detected in FontList.luau; skipping release creation."
             echo "has_changes=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Get diff content
-        id: get_diff
-        if: steps.check_changes.outputs.has_diff == 'true'
+      - name: Decide whether to release
+        id: should_release
         shell: bash
         run: |
-          DIFF_CONTENT=$(cat build/FontList.diff)
-          echo "diff_content<<EOF" >> $GITHUB_OUTPUT
-          echo "${DIFF_CONTENT}" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          if [ "${{ steps.check_changes.outputs.has_changes }}" = "true" ] || [ "${{ github.event.inputs.force }}" = "true" ]; then
+            echo "release=true" >> $GITHUB_OUTPUT
+          else
+            echo "release=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Create tag
         id: create_tag
-        if: steps.check_changes.outputs.has_changes == 'true' || github.event.inputs.force == 'true'
+        if: steps.should_release.outputs.release == 'true'
         shell: bash
         run: |
           TAG="v$(date +'%Y.%m.%d')"
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
 
+      - name: Collect added fonts
+        id: additions
+        if: steps.should_release.outputs.release == 'true'
+        shell: bash
+        run: |
+          # Each addition line ends in its content uri, e.g.
+          #   + Builder Extended (rbxassetid://16658237174)
+          FONTS=""
+
+          if [ -f build/FontList.diff ]; then
+            FONTS=$(sed -nE 's/^\+ .*\((rbxasset[^)]*)\)$/\1/p' build/FontList.diff | tr '\n' ',' | sed 's/,$//')
+          fi
+
+          echo "fonts=${FONTS}" >> $GITHUB_OUTPUT
+
+          if [ -n "${FONTS}" ]; then
+            echo "Fonts added in this release: ${FONTS}"
+            echo "has_additions=true" >> $GITHUB_OUTPUT
+          else
+            echo "No fonts added in this release; skipping preview."
+            echo "has_additions=false" >> $GITHUB_OUTPUT
+          fi
+
+      # Previews of local (rbxasset://) fonts normally read the font files out
+      # of a Roblox Studio installation, which a runner does not have. The
+      # Studio fonts package the generator already downloaded has the same
+      # layout under its "fonts" directory, so unpack it and point at that.
+      - name: Unpack Studio font content
+        id: font_content
+        if: steps.additions.outputs.has_additions == 'true'
+        continue-on-error: true
+        shell: bash
+        run: |
+          FONT_PACKAGE=$(find temp -maxdepth 1 -name '*-fonts.zip' -size +1M -printf '%T@ %p\n' | sort -rn | head -n1 | cut -d' ' -f2-)
+
+          if [ -z "${FONT_PACKAGE}" ]; then
+            echo "No Studio fonts package in temp/; local font previews will not render." >&2
+            exit 1
+          fi
+
+          echo "Unpacking ${FONT_PACKAGE}"
+          rm -rf temp/content
+          mkdir -p temp/content/fonts
+          7z x "-otemp/content/fonts" "${FONT_PACKAGE}" -y > /dev/null
+
+      # Never block a release on the preview; the notes simply omit it
+      - name: Generate font previews
+        id: previews
+        if: steps.additions.outputs.has_additions == 'true'
+        continue-on-error: true
+        shell: bash
+        run: |
+          lune run preview -- \
+            --fonts "${{ steps.additions.outputs.fonts }}" \
+            --content temp/content \
+            --width 900 \
+            --output build/preview \
+            -vv
+
+          # The generated pair is named after a hash of its inputs; the release
+          # assets need a stable name to be linked from the notes
+          mv "$(ls build/preview/*_black.svg)" build/font-preview-light.svg
+          mv "$(ls build/preview/*_white.svg)" build/font-preview-dark.svg
+
+      - name: Build release notes
+        id: release_notes
+        if: steps.should_release.outputs.release == 'true'
+        shell: bash
+        run: |
+          ADDED=0
+          REMOVED=0
+
+          if [ -f build/FontList.diff ]; then
+            ADDED=$(grep -c '^+ ' build/FontList.diff || true)
+            REMOVED=$(grep -c '^- ' build/FontList.diff || true)
+          fi
+
+          plural() {
+            if [ "$1" -eq 1 ]; then echo "font"; else echo "fonts"; fi
+          }
+
+          if [ "${ADDED}" -gt 0 ] && [ "${REMOVED}" -gt 0 ]; then
+            SUMMARY="This release adds ${ADDED} $(plural ${ADDED}) and removes ${REMOVED} $(plural ${REMOVED})."
+          elif [ "${ADDED}" -gt 0 ]; then
+            SUMMARY="This release adds ${ADDED} $(plural ${ADDED})."
+          elif [ "${REMOVED}" -gt 0 ]; then
+            SUMMARY="This release removes ${REMOVED} $(plural ${REMOVED})."
+          else
+            SUMMARY="No font changes were detected; this release was published manually."
+          fi
+
+          ASSETS="https://github.com/${{ github.repository }}/releases/download/${{ steps.create_tag.outputs.tag }}"
+
+          {
+            echo "## Changes"
+            echo
+            echo "${SUMMARY}"
+
+            if [ -s build/FontList.diff ]; then
+              echo
+              echo '```diff'
+              # Substitution trims trailing newlines, so the fence closes on the
+              # line after the diff whether or not the file ends in one
+              printf '%s\n' "$(cat build/FontList.diff)"
+              echo '```'
+            fi
+
+            if [ -f build/font-preview-light.svg ] && [ -f build/font-preview-dark.svg ]; then
+              echo
+              echo "### New fonts"
+              echo
+              echo "<picture>"
+              echo "  <source media=\"(prefers-color-scheme: dark)\" srcset=\"${ASSETS}/font-preview-dark.svg\">"
+              echo "  <img alt=\"Preview of the fonts added in this release\" src=\"${ASSETS}/font-preview-light.svg\">"
+              echo "</picture>"
+            fi
+          } > build/ReleaseNotes.md
+
+          echo "Release notes:"
+          cat build/ReleaseNotes.md
+
       - name: Create new release
-        if: steps.check_changes.outputs.has_changes == 'true' || github.event.inputs.force == 'true'
+        if: steps.should_release.outputs.release == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.create_tag.outputs.tag }}
           name: ${{ steps.create_tag.outputs.tag }}
-          body: |
-            ## Changes
-            
-            ```diff
-            ${{ steps.get_diff.outputs.diff_content }}
-            ```
+          body_path: build/ReleaseNotes.md
           files: |
             build/FontList.luau
             build/FontList.json
+            build/font-preview-light.svg
+            build/font-preview-dark.svg
 
       - name: Publish to Wally
-        if: steps.check_changes.outputs.has_changes == 'true' || github.event.inputs.force == 'true'
+        if: steps.should_release.outputs.release == 'true'
         shell: bash
         run: |
           # Create a new wally.toml from the template
