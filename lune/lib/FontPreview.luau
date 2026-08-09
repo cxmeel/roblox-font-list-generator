@@ -3,7 +3,8 @@
 	Lays out a column of font samples and renders it as an SVG.
 
 	Each font gets a block: the family name in a small generic sans-serif, and
-	the preview text below it rendered in the font itself.
+	the preview text below it rendered in the font itself. Blocks are ordered
+	by family name, whatever order the caller passed them in.
 
 	GitHub serves README images through Camo and renders them as `<img>`, which
 	is a sandbox with no access to external or embedded webfonts. So the preview
@@ -60,6 +61,19 @@ local MAX_SAMPLE_SIZE = 32
 local LABEL_FONT_FAMILY = "-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif"
 local LABEL_OPACITY = "0.55"
 
+--- Orders fonts by name so a preview is scannable, with the file path as a
+--- tiebreak because `table.sort` is not stable and two families can share a
+--- name (a font hosted both locally and in the cloud, for instance).
+local function byName(a: PreviewFont, b: PreviewFont): boolean
+	local aName, bName = a.name:lower(), b.name:lower()
+
+	if aName == bName then
+		return a.filePath < b.filePath
+	end
+
+	return aName < bName
+end
+
 --- Parses each font file and shapes the preview text through it.
 local function shapeFonts(previewFonts: { PreviewFont }, text: string): { ShapedFont }
 	local shaped: { ShapedFont } = {}
@@ -95,7 +109,10 @@ end
 
 --- Lays the samples out into reusable geometry, with no colour applied yet.
 local function compose(previewFonts: { PreviewFont }, options: PreviewOptions): Composition
-	local shapedFonts = shapeFonts(previewFonts, options.text)
+	local orderedFonts = table.clone(previewFonts)
+	table.sort(orderedFonts, byName)
+
+	local shapedFonts = shapeFonts(orderedFonts, options.text)
 
 	if #shapedFonts == 0 then
 		logger.error("No fonts left to preview")
