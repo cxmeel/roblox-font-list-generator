@@ -2,33 +2,17 @@ local net = require("@lune/net")
 local serde = require("@lune/serde")
 local task = require("@lune/task")
 
+local AssetDelivery = require("./AssetDelivery")
 local Font = require("../struct/Font")
 
 local colors = require("../utils/colors")
 local logger = require("../utils/logger")
 
 local FONT_TOOLBOX_URL = "https://apis.roblox.com/toolbox-service/v1/marketplace/73?limit=30&pageNumber=%d"
-local BATCH_ASSET_URL = "https://assetdelivery.roblox.com/v1/assets/batch"
 
 local MAX_NET_REQUESTS = 5
 local BATCH_SIZE = 30
 local RATE_LIMIT_INTERVAL = 15
-
-local function createBatches<T>(array: { T }, batchSize: number)
-	local batches = {}
-
-	for i = 1, #array, batchSize do
-		local batch = {}
-
-		for j = i, math.min(i + batchSize - 1, #array) do
-			table.insert(batch, array[j])
-		end
-
-		table.insert(batches, batch)
-	end
-
-	return batches
-end
 
 local function fetchCurrentRemoteFontIds()
 	local pageNumber, numberRequests = 0, 0
@@ -70,39 +54,28 @@ end
 
 local function fetchFontsFromServer(fontIds: { number })
 	-- Fetch CDN download URLs for each font
-	local fontIdBatches = createBatches(fontIds, BATCH_SIZE)
+	local assetRequestItems: { AssetDelivery.BatchRequest } = {}
 	local fontCdnUrls = {}
 
 	logger.info("Fetching cloud font CDN download URLs")
 
-	for _, fontIdBatch in fontIdBatches do
-		local assetRequestItems = {}
-
-		for _, fontId in fontIdBatch do
-			table.insert(assetRequestItems, {
-				requestId = tostring(fontId),
-				assetId = fontId,
-			})
-		end
-
-		local response = net.request({
-			url = BATCH_ASSET_URL,
-			method = "POST",
-			body = serde.encode("json", assetRequestItems),
-			headers = {
-				["Accept"] = "application/json",
-				["Content-Type"] = "application/json",
-				["Roblox-Place-Id"] = "0",
-				["Roblox-Browser-Asset-Request"] = "true",
-			},
+	for _, fontId in fontIds do
+		table.insert(assetRequestItems, {
+			requestId = tostring(fontId),
+			assetId = fontId,
 		})
+	end
 
-		local data = serde.decode("json", response.body)
+	for _, result in AssetDelivery.batch(assetRequestItems) do
+		local location = AssetDelivery.locationOf(result)
 
-		for _, cdnAssetResult in ipairs(data) do
-			local fontId = tonumber(cdnAssetResult.requestId)
-			fontCdnUrls[fontId] = cdnAssetResult.location
+		-- An archived or otherwise unavailable font is simply not listed
+		if not location then
+			logger.warn("Skipping unavailable cloud font", colors.bold(result.requestId))
+			continue
 		end
+
+		fontCdnUrls[tonumber(result.requestId)] = location
 	end
 
 	-- Download each font as necessary

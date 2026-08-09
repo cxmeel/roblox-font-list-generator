@@ -1,0 +1,250 @@
+--!strict
+--[[
+	Resolves Roblox font content ids to font files on disk.
+
+	Local (`rbxasset://`) fonts come out of the Studio installation, cloud
+	(`rbxassetid://`) fonts out of the download registry, downloading them
+	through the asset delivery API when they are not already cached.
+]]
+
+local fs = require("@lune/fs")
+local net = require("@lune/net")
+local process = require("@lune/process")
+local serde = require("@lune/serde")
+
+local AssetDelivery = require("./AssetDelivery")
+local FontFamily = require("../struct/FontFamily")
+
+local logger = require("../utils/logger")
+local rbx = require("../utils/rbx")
+local ufs = require("../utils/ufs")
+
+type FontFamily = FontFamily.FontFamily
+
+export type FontFileType = "otf" | "ttf" | "woff" | "woff2" | "eot"
+
+export type ResolveOptions = {
+	--- Where cloud font descriptors and downloads are kept.
+	registryPath: string,
+	--- Overrides the Roblox Studio content directory that `rbxasset://` paths
+	--- resolve against. Machines without Studio -- CI runners in particular --
+	--- can extract the Studio fonts package and point at it instead.
+	contentPath: string?,
+}
+
+local RBXASSET_PREFIX = "rbxasset://"
+local RBXASSETID_PREFIX = "rbxassetid://"
+
+local FONT_FILE_TYPES: { FontFileType } = {
+	"otf",
+	"ttf",
+	"woff",
+	"woff2",
+	"eot",
+}
+
+local function stripPrefix(value: string, prefix: string): string?
+	if string.sub(value, 1, #prefix) ~= prefix then
+		return nil
+	end
+
+	return string.sub(value, #prefix + 1)
+end
+
+--- Resolves a path inside the Studio content directory, erroring out if there
+--- is neither an override nor a Studio installation to read from.
+local function studioContentFile(relativePath: string, options: ResolveOptions): string
+	local contentPath = options.contentPath or rbx.studioContentPath()
+
+	if not contentPath then
+		logger.error("No Roblox Studio installation found to read local fonts from; pass --content to override")
+		process.exit(1)
+	end
+
+	return ufs.normalizePath(`{contentPath}/{relativePath}`)
+end
+
+local function determineFontFileType(fontContent: string): FontFileType?
+	local len = #fontContent
+
+	-- All standard font formats require at least 4 bytes for their signature.
+	if len < 4 then
+		return nil
+	end
+
+	-- Extract the first 4 bytes for standard magic number comparison
+	local magic = string.sub(fontContent, 1, 4)
+
+	if magic == "OTTO" then
+		return "otf"
+	elseif magic == string.char(0, 1, 0, 0) or magic == "true" then
+		-- OpenType specifies \x00\x01\x00\x00 for TrueType, but older Apple fonts use 'true'
+		return "ttf"
+	elseif magic == "wOFF" then
+		return "woff"
+	elseif magic == "wOF2" then
+		return "woff2"
+	end
+
+	-- EOT is an exception: its magic number ("LP") is located at byte offset 34.
+	-- In Lua's 1-based indexing, this corresponds to bytes 35 and 36.
+	if len >= 36 and string.sub(fontContent, 35, 36) == "LP" then
+		return "eot"
+	end
+
+	-- If no signatures match, return nil
+	return nil
+end
+
+--- Returns the cached download for an asset, if one of the known file types
+--- is already sitting in the registry.
+local function findCachedFontFile(pathWithoutExtension: string): string?
+	for _, fileType in FONT_FILE_TYPES do
+		local candidatePath = `{pathWithoutExtension}.{fileType}`
+
+		if fs.isFile(candidatePath) then
+			return candidatePath
+		end
+	end
+
+	return nil
+end
+
+--- Reads the family descriptor behind each font content id.
+local function resolveFamilies(fontIds: { string }, options: ResolveOptions): { [string]: FontFamily }
+	local families: { [string]: FontFamily } = {}
+
+	for _, fontId in fontIds do
+		local cloudAssetId = stripPrefix(fontId, RBXASSETID_PREFIX)
+		local localPath = stripPrefix(fontId, RBXASSET_PREFIX)
+
+		local familyPath: string?
+
+		if cloudAssetId then
+			familyPath = ufs.normalizePath(`{options.registryPath}/{cloudAssetId}.json`)
+		elseif localPath then
+			familyPath = studioContentFile(localPath, options)
+		end
+
+		if not familyPath then
+			logger.error(`Invalid font ID: {fontId}`)
+			process.exit(1)
+			continue
+		end
+
+		if not fs.isFile(familyPath) then
+			logger.error(`Font not found: {familyPath}`)
+			process.exit(1)
+			continue
+		end
+
+		families[fontId] = serde.decode("json", fs.readFile(familyPath))
+	end
+
+	return families
+end
+
+--- Downloads the given cloud font assets into the registry, keyed by font id.
+local function downloadFontFiles(assetIdsByFontId: { [string]: number }, options: ResolveOptions): { [string]: string }
+	local downloadedPaths: { [string]: string } = {}
+	local requestBody: { AssetDelivery.BatchRequest } = {}
+
+	for fontId, assetId in assetIdsByFontId do
+		table.insert(requestBody, {
+			requestId = fontId,
+			assetId = assetId,
+		})
+	end
+
+	logger.info("Downloading remote font files...")
+
+	for _, result in AssetDelivery.batch(requestBody) do
+		local fontId = result.requestId
+		local downloadUrl = AssetDelivery.locationOf(result)
+
+		-- A font we were explicitly asked to preview and cannot fetch is fatal
+		-- here, unlike in the generator where an unavailable asset is skipped
+		if not downloadUrl then
+			local reason = if result.isArchived then "asset is archived" else "no download locations"
+
+			logger.error(`Cannot download font asset {fontId}: {reason}`)
+			process.exit(1)
+			continue
+		end
+
+		-- Cached downloads are named after the family id, not the face asset id
+		local pathWithoutExtension =
+			ufs.normalizePath(`{options.registryPath}/fonts/{stripPrefix(fontId, RBXASSETID_PREFIX)}`)
+		local cachedPath = findCachedFontFile(pathWithoutExtension)
+
+		if cachedPath then
+			logger.debug(`Font asset {fontId} already exists at {cachedPath}, skipping download.`)
+			downloadedPaths[fontId] = cachedPath
+
+			continue
+		end
+
+		logger.debug(`> Downloading font asset {fontId} from {downloadUrl}`)
+
+		local downloadResponse = net.request({ url = downloadUrl })
+
+		if not downloadResponse.ok then
+			logger.error(
+				`Failed to download font asset {fontId}: [{downloadResponse.statusCode}] {downloadResponse.statusMessage}`
+			)
+			process.exit(1)
+		end
+
+		local fontFileType = determineFontFileType(downloadResponse.body) or "otf"
+		local downloadedPath = `{pathWithoutExtension}.{fontFileType}`
+
+		ufs.writeFile(downloadedPath, downloadResponse.body)
+		downloadedPaths[fontId] = downloadedPath
+
+		logger.debug(`> Saved font asset {fontId} to {downloadedPath}`)
+	end
+
+	return downloadedPaths
+end
+
+--- Resolves each family's regular face to a font file on disk, downloading
+--- cloud faces in a single batch.
+local function resolveFontFiles(families: { [string]: FontFamily }, options: ResolveOptions): { [string]: string }
+	local fontFilePaths: { [string]: string } = {}
+	local pendingAssetIds: { [string]: number } = {}
+
+	for fontId, family in families do
+		local face = FontFamily.regularFace(family)
+		local cloudAssetId = stripPrefix(face.assetId, RBXASSETID_PREFIX)
+		local numericAssetId = cloudAssetId and tonumber(cloudAssetId)
+
+		if numericAssetId then
+			pendingAssetIds[fontId] = numericAssetId
+			continue
+		end
+
+		local localPath = stripPrefix(face.assetId, RBXASSET_PREFIX)
+
+		if not localPath then
+			logger.error(`Invalid font asset ID for {family.name}: {face.assetId}`)
+			process.exit(1)
+			continue
+		end
+
+		fontFilePaths[fontId] = studioContentFile(localPath, options)
+	end
+
+	if next(pendingAssetIds) then
+		for fontId, downloadedPath in downloadFontFiles(pendingAssetIds, options) do
+			fontFilePaths[fontId] = downloadedPath
+		end
+	end
+
+	return fontFilePaths
+end
+
+return {
+	resolveFamilies = resolveFamilies,
+	resolveFontFiles = resolveFontFiles,
+	determineFontFileType = determineFontFileType,
+}

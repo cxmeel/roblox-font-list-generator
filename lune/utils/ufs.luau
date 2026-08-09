@@ -2,7 +2,7 @@
 local fs = require("@lune/fs")
 
 local function normalizePath(path: string)
-	local output = path:gsub("\\", "/")
+	local output = path:gsub("\\", "/"):gsub("//+", "/"):gsub("/%./", "/"):gsub("/$", "")
 	return output
 end
 
