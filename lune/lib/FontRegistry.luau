@@ -12,6 +12,7 @@ local net = require("@lune/net")
 local process = require("@lune/process")
 local serde = require("@lune/serde")
 
+local AssetDelivery = require("./AssetDelivery")
 local FontFamily = require("../struct/FontFamily")
 
 local logger = require("../utils/logger")
@@ -21,16 +22,6 @@ local ufs = require("../utils/ufs")
 type FontFamily = FontFamily.FontFamily
 
 export type FontFileType = "otf" | "ttf" | "woff" | "woff2" | "eot"
-
-type AssetDeliveryBatchItem = {
-	locations: { { assetFormat: string, location: string } },
-	requestId: string,
-	isArchived: boolean,
-	assetTypeId: number,
-	isRecordable: boolean,
-}
-
-local BATCH_ASSET_URL = "https://assetdelivery.roblox.com/v2/assets/batch"
 
 local RBXASSET_PREFIX = "rbxasset://"
 local RBXASSETID_PREFIX = "rbxassetid://"
@@ -145,54 +136,31 @@ local function resolveFamilies(fontIds: { string }, registryPath: string): { [st
 end
 
 --- Downloads the given cloud font assets into the registry, keyed by font id.
-local function downloadFontFiles(assetIdsByFontId: { [string]: string }, registryPath: string): { [string]: string }
+local function downloadFontFiles(assetIdsByFontId: { [string]: number }, registryPath: string): { [string]: string }
 	local downloadedPaths: { [string]: string } = {}
-	local requestBody = {}
+	local requestBody: { AssetDelivery.BatchRequest } = {}
 
 	for fontId, assetId in assetIdsByFontId do
 		table.insert(requestBody, {
 			requestId = fontId,
-			assetId = tonumber(assetId),
+			assetId = assetId,
 		})
 	end
 
 	logger.info("Downloading remote font files...")
 
-	local response = net.request({
-		url = BATCH_ASSET_URL,
-		method = "POST",
-		body = serde.encode("json", requestBody, false),
-		headers = {
-			["Content-Type"] = "application/json",
-		},
-	})
+	for _, result in AssetDelivery.batch(requestBody) do
+		local fontId = result.requestId
+		local downloadUrl = AssetDelivery.locationOf(result)
 
-	if not response.ok then
-		logger.error(
-			`Failed to download remote font files: [{response.statusCode}] {response.statusMessage}: {response.body}`
-		)
-		process.exit(1)
-	end
+		-- A font we were explicitly asked to preview and cannot fetch is fatal
+		-- here, unlike in the generator where an unavailable asset is skipped
+		if not downloadUrl then
+			local reason = if result.isArchived then "asset is archived" else "no download locations"
 
-	local parsedOk, parsedData: { AssetDeliveryBatchItem } =
-		pcall(serde.decode, "json" :: serde.EncodeDecodeFormat, response.body)
-
-	if not parsedOk then
-		logger.error(`Failed to parse response JSON: {parsedData}`)
-		process.exit(1)
-	end
-
-	for _, responseItem in parsedData do
-		local fontId = responseItem.requestId
-
-		if responseItem.isArchived then
-			logger.error(`Font asset is archived and cannot be downloaded: {fontId}`)
+			logger.error(`Cannot download font asset {fontId}: {reason}`)
 			process.exit(1)
-		end
-
-		if #responseItem.locations == 0 then
-			logger.error(`No download locations found for font asset: {fontId}`)
-			process.exit(1)
+			continue
 		end
 
 		-- Cached downloads are named after the family id, not the face asset id
@@ -206,7 +174,6 @@ local function downloadFontFiles(assetIdsByFontId: { [string]: string }, registr
 			continue
 		end
 
-		local downloadUrl = responseItem.locations[1].location
 		logger.debug(`> Downloading font asset {fontId} from {downloadUrl}`)
 
 		local downloadResponse = net.request({ url = downloadUrl })
@@ -234,14 +201,15 @@ end
 --- cloud faces in a single batch.
 local function resolveFontFiles(families: { [string]: FontFamily }, registryPath: string): { [string]: string }
 	local fontFilePaths: { [string]: string } = {}
-	local pendingAssetIds: { [string]: string } = {}
+	local pendingAssetIds: { [string]: number } = {}
 
 	for fontId, family in families do
 		local face = FontFamily.regularFace(family)
 		local cloudAssetId = stripPrefix(face.assetId, RBXASSETID_PREFIX)
+		local numericAssetId = cloudAssetId and tonumber(cloudAssetId)
 
-		if cloudAssetId and cloudAssetId:match("^%d+$") then
-			pendingAssetIds[fontId] = cloudAssetId
+		if numericAssetId then
+			pendingAssetIds[fontId] = numericAssetId
 			continue
 		end
 
