@@ -188,10 +188,12 @@ jobs:
 
           {
             echo "${SUMMARY}"
-            echo
-            echo "## Changes"
 
+            # A forced release can have nothing to list, so the heading only
+            # appears when there is a diff to put under it
             if [ -s build/FontList.diff ]; then
+              echo
+              echo "## Changes"
               echo
               echo '```diff'
               # Substitution trims trailing newlines, so the fence closes on the
