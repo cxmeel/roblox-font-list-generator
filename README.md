@@ -20,10 +20,85 @@ rokit install
 Then, you can run the following command to generate the font list:
 
 ```sh
-lune generate
+lune run generate
 ```
 
-The font list will be written to `build/FontList.lua` in the current directory, and comes with built-in type definitions. A `build/FontList.json` file will also be generated (minified, enums shortened to a string; see [the JSON preview](#json-preview) below).
+The font list will be written to `build/FontList.luau` in the current directory, and comes with built-in type definitions. A `build/FontList.json` file will also be generated (minified, enums shortened to a string; see [the JSON preview](#json-preview) below).
+
+## Commands
+
+Every command takes `-v` for progress logging, or `-vv` to include debug detail.
+
+### `generate`
+
+Builds the font list from the current Roblox Studio release and the cloud font
+catalogue, writing `build/FontList.luau` and `build/FontList.json`.
+
+```sh
+lune run generate
+```
+
+| Argument | Default | Description |
+| --- | --- | --- |
+| `--ext <extension>` | `luau` | Extension for the generated Luau file. |
+
+### `diff`
+
+Compares two generated font lists and writes the additions and deletions to
+`build/FontList.diff`. Either file may be the Luau flavour or the JSON one, in
+either position, chosen by file extension. Entries are matched on `ContentUri`,
+and each line ends with the uri it matched:
+
+```diff
+- Montserrat (rbxassetid://11702779517)
+
++ Builder Extended (rbxassetid://16658237174)
++ Zekton (rbxasset://fonts/families/Zekton.json)
+```
+
+```sh
+lune run diff build/OldFontList.luau build/FontList.luau
+```
+
+Modifications to fonts that exist in both lists are not reported, only whole
+entries appearing and disappearing.
+
+### `preview`
+
+Renders a sample of the given fonts to a pair of SVG files, one with black
+text and one with white, so the right one can be shown for the reader's theme.
+
+```sh
+lune run preview -- --fonts "rbxasset://fonts/families/BuilderSans.json,rbxassetid://12187360881"
+```
+
+| Argument | Default | Description |
+| --- | --- | --- |
+| `--fonts <ids>` | *required* | Comma separated content uris, as they appear in the font list. |
+| `--text <text>` | `The quick brown fox jumps over the lazy dog.` | Sample text. |
+| `--width <pixels>` | `1024` | Maximum image width. The sample size shrinks to fit rather than the text being clipped. |
+| `--output <dir>` | `temp/preview` | Where the pair is written. Files are named after a hash of the inputs. |
+| `--registry <dir>` | `temp/downloads` | Where cloud font descriptors and downloads are kept. Runs `generate` first if it does not exist. |
+| `--content <dir>` | Studio install | Overrides the Roblox Studio content directory that local fonts are read from. |
+
+Fonts are laid out alphabetically by family name, regardless of the order they
+are listed in. Every glyph is emitted as an outline path rather than as text,
+because GitHub renders README images in a sandbox with no access to webfonts,
+so a `<text>` element would silently fall back to a default face.
+
+`--content` exists for machines with no Roblox Studio installation. Unpack the
+Studio fonts package into a directory named `fonts` and point at its parent;
+the workflow in this repository does exactly that to render previews on a
+runner.
+
+Embed the pair with a `<picture>` element so it follows the reader's theme:
+
+```html
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="preview_white.svg">
+  <img alt="Font preview" src="preview_black.svg">
+</picture>
+```
 
 ## Preview
 
@@ -186,3 +261,27 @@ return fonts
     ...
 ]
 ```
+
+## Duplicate Entries
+
+A handful of families are published twice: once as a local font shipped with
+Roblox Studio, and once as a cloud asset. Both entries are listed, because both
+are real things you can reference, and the pairs carry identical weight and
+style coverage — the only difference is where the font comes from.
+
+Prefer the local entry where you have the choice. It is already on the user's
+machine and needs no additional content download.
+
+`ContentUri` is the only field guaranteed to be unique. To keep lookups
+unambiguous, the cloud copy of a duplicated family carries a `_cloud` suffix on
+its `PostScript` name, leaving the bare name on the local one:
+
+| Name | ContentUri | PostScript |
+| --- | --- | --- |
+| Builder Sans | `rbxasset://fonts/families/BuilderSans.json` | `builder_sans` |
+| Builder Sans | `rbxassetid://16658221428` | `builder_sans_cloud` |
+
+The exception is `Arimo (Legacy)`, which appears twice as a local font. Roblox
+dropped Arial in favour of Arimo and renamed the family in place, so both
+`LegacyArimo.json` and `LegacyArial.json` now declare the same name. Neither is
+a cloud duplicate, and both are left as they are.
