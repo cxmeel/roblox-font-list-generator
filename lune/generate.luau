@@ -5,21 +5,71 @@ local serde = require("@lune/serde")
 local CloudFonts = require("./lib/CloudFonts")
 local LocalFonts = require("./lib/LocalFonts")
 
+local args = require("./utils/args")
 local colors = require("./utils/colors")
 local logger = require("./utils/logger")
 local ufs = require("./utils/ufs")
 
-local FILE_EXTENSION = "luau"
-do
-	local extPos = table.find(process.args, "--ext")
+local FILE_EXTENSION = args.valueOr("--ext", "luau")
+local CLOUD_POSTSCRIPT_SUFFIX = "_cloud"
 
-	if extPos then
-		FILE_EXTENSION = process.args[extPos + 1]
+--- Names are not unique -- a few families are published both locally and in
+--- the cloud -- and `table.sort` is not stable, so the content uri breaks the
+--- tie to keep the generated list from reshuffling between runs.
+local function byName(a: { Name: string, ContentUri: string }, b: { Name: string, ContentUri: string }): boolean
+	if a.Name == b.Name then
+		return a.ContentUri < b.ContentUri
+	end
+
+	return a.Name < b.Name
+end
+
+--[[
+	A few families are published both as a local font and as a cloud asset,
+	which leaves two entries sharing one PostScript name.
+
+	Both entries are kept, but the local copy keeps the bare name: it is already
+	on the user's machine and needs no extra content download, so it is the one
+	a lookup should land on. The cloud duplicate is suffixed to get out of its
+	way.
+
+	Only cross-source duplicates are touched. Local fonts that share a name with
+	each other keep it, since that reflects how Roblox itself publishes them.
+]]
+local function disambiguateCloudPostScripts(
+	localFonts: { { PostScript: string } },
+	cloudFonts: { { PostScript: string, Name: string } }
+)
+	local localPostScripts: { [string]: boolean } = {}
+
+	for _, font in localFonts do
+		localPostScripts[font.PostScript] = true
+	end
+
+	for _, font in cloudFonts do
+		if not localPostScripts[font.PostScript] then
+			continue
+		end
+
+		local disambiguated = `{font.PostScript}{CLOUD_POSTSCRIPT_SUFFIX}`
+
+		logger.debug(
+			"Cloud duplicate of",
+			colors.bold(font.Name),
+			"renamed from",
+			colors.grey(font.PostScript),
+			"to",
+			colors.grey(disambiguated)
+		)
+
+		font.PostScript = disambiguated
 	end
 end
 
 local localFonts = LocalFonts.fetchLocalFonts()
 local cloudFonts = CloudFonts.fetchCloudFonts()
+
+disambiguateCloudPostScripts(localFonts, cloudFonts)
 
 logger.debug("Found", colors.bold(#localFonts), "local fonts and", colors.bold(#cloudFonts), "cloud fonts")
 print("Building font list from", colors.bold(#localFonts + #cloudFonts), "fonts")
@@ -42,19 +92,14 @@ local fonts: { IFont } = {
     -- Local fonts --]],
 }
 
-table.sort(localFonts, function(a, b)
-	return a.Name < b.Name
-end)
+table.sort(localFonts, byName)
+table.sort(cloudFonts, byName)
 
 for _, font in localFonts do
 	table.insert(source, `{font:ToString()},`)
 end
 
 table.insert(source, "-- Cloud fonts --")
-
-table.sort(cloudFonts, function(a, b)
-	return a.Name < b.Name
-end)
 
 for _, font in cloudFonts do
 	table.insert(source, `{font:ToString()},`)
@@ -79,12 +124,10 @@ print("Writing JSON font list to", colors.blue("build/FontList.json"))
 
 local jsonFontList = {}
 
-for _, font in localFonts do
-	table.insert(jsonFontList, font:ToDictionary())
-end
-
-for _, font in cloudFonts do
-	table.insert(jsonFontList, font:ToDictionary())
+for _, fontList in { localFonts, cloudFonts } do
+	for _, font in fontList do
+		table.insert(jsonFontList, font:ToDictionary())
+	end
 end
 
 ufs.writeFile("build/FontList.json", serde.encode("json", jsonFontList))
