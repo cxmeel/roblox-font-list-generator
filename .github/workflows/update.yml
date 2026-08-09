@@ -148,6 +148,7 @@ jobs:
             --fonts "${{ steps.additions.outputs.fonts }}" \
             --content temp/content \
             --width 900 \
+            --text "You make the game! It's free!"\
             --output build/preview \
             -vv
 
@@ -174,11 +175,11 @@ jobs:
           }
 
           if [ "${ADDED}" -gt 0 ] && [ "${REMOVED}" -gt 0 ]; then
-            SUMMARY="This release adds ${ADDED} $(plural ${ADDED}) and removes ${REMOVED} $(plural ${REMOVED})."
+            SUMMARY="Added ${ADDED} $(plural ${ADDED}), removed ${REMOVED} $(plural ${REMOVED})."
           elif [ "${ADDED}" -gt 0 ]; then
-            SUMMARY="This release adds ${ADDED} $(plural ${ADDED})."
+            SUMMARY="Added ${ADDED} $(plural ${ADDED})."
           elif [ "${REMOVED}" -gt 0 ]; then
-            SUMMARY="This release removes ${REMOVED} $(plural ${REMOVED})."
+            SUMMARY="Removed ${REMOVED} $(plural ${REMOVED})."
           else
             SUMMARY="No font changes were detected; this release was published manually."
           fi
@@ -186,9 +187,9 @@ jobs:
           ASSETS="https://github.com/${{ github.repository }}/releases/download/${{ steps.create_tag.outputs.tag }}"
 
           {
-            echo "## Changes"
-            echo
             echo "${SUMMARY}"
+            echo
+            echo "## Changes"
 
             if [ -s build/FontList.diff ]; then
               echo
@@ -200,8 +201,6 @@ jobs:
             fi
 
             if [ -f build/font-preview-light.svg ] && [ -f build/font-preview-dark.svg ]; then
-              echo
-              echo "### New fonts"
               echo
               echo "<picture>"
               echo "  <source media=\"(prefers-color-scheme: dark)\" srcset=\"${ASSETS}/font-preview-dark.svg\">"
