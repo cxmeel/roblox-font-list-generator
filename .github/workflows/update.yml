@@ -101,7 +101,10 @@ jobs:
           name: ${{ steps.create_tag.outputs.tag }}
           body: |
             ## Changes
+            
+            ```diff
             ${{ steps.get_diff.outputs.diff_content }}
+            ```
           files: |
             build/FontList.luau
             build/FontList.json
