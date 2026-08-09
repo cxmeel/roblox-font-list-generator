@@ -26,6 +26,10 @@ end
 
 local REGISTRY_PATH = ufs.normalizePath(`{process.cwd}/{args.valueOr("--registry", DEFAULT_REGISTRY_PATH)}`)
 
+-- Without an override, local fonts are read from the Roblox Studio install
+local CONTENT_ARG = args.value("--content")
+local CONTENT_PATH = if CONTENT_ARG then ufs.normalizePath(`{process.cwd}/{CONTENT_ARG}`) else nil
+
 -- Validate registry
 if not fs.isDir(REGISTRY_PATH) then
 	if args.has("--registry") then
@@ -38,11 +42,17 @@ if not fs.isDir(REGISTRY_PATH) then
 end
 
 -- Locate a font file for every requested font, downloading cloud fonts as needed
-local fontIdList = (FONT_IDS :: string):split(",")
-local families = FontRegistry.resolveFamilies(fontIdList, REGISTRY_PATH)
-local fontFilePaths = FontRegistry.resolveFontFiles(families, REGISTRY_PATH)
+local resolveOptions: FontRegistry.ResolveOptions = {
+	registryPath = REGISTRY_PATH,
+	contentPath = CONTENT_PATH,
+}
 
--- Keep the order the fonts were asked for, ignoring any repeats
+local fontIdList = (FONT_IDS :: string):split(",")
+local families = FontRegistry.resolveFamilies(fontIdList, resolveOptions)
+local fontFilePaths = FontRegistry.resolveFontFiles(families, resolveOptions)
+
+-- Fonts are laid out alphabetically, so the order here only decides which
+-- duplicate ids get dropped
 local previewFonts: { FontPreview.PreviewFont } = {}
 local seenFontIds: { [string]: boolean } = {}
 local hashParts: { string } = {}

@@ -23,6 +23,15 @@ type FontFamily = FontFamily.FontFamily
 
 export type FontFileType = "otf" | "ttf" | "woff" | "woff2" | "eot"
 
+export type ResolveOptions = {
+	--- Where cloud font descriptors and downloads are kept.
+	registryPath: string,
+	--- Overrides the Roblox Studio content directory that `rbxasset://` paths
+	--- resolve against. Machines without Studio -- CI runners in particular --
+	--- can extract the Studio fonts package and point at it instead.
+	contentPath: string?,
+}
+
 local RBXASSET_PREFIX = "rbxasset://"
 local RBXASSETID_PREFIX = "rbxassetid://"
 
@@ -43,12 +52,12 @@ local function stripPrefix(value: string, prefix: string): string?
 end
 
 --- Resolves a path inside the Studio content directory, erroring out if there
---- is no Studio installation to read from.
-local function studioContentFile(relativePath: string): string
-	local contentPath = rbx.studioContentPath()
+--- is neither an override nor a Studio installation to read from.
+local function studioContentFile(relativePath: string, options: ResolveOptions): string
+	local contentPath = options.contentPath or rbx.studioContentPath()
 
 	if not contentPath then
-		logger.error("No Roblox Studio installation found to read local fonts from")
+		logger.error("No Roblox Studio installation found to read local fonts from; pass --content to override")
 		process.exit(1)
 	end
 
@@ -102,7 +111,7 @@ local function findCachedFontFile(pathWithoutExtension: string): string?
 end
 
 --- Reads the family descriptor behind each font content id.
-local function resolveFamilies(fontIds: { string }, registryPath: string): { [string]: FontFamily }
+local function resolveFamilies(fontIds: { string }, options: ResolveOptions): { [string]: FontFamily }
 	local families: { [string]: FontFamily } = {}
 
 	for _, fontId in fontIds do
@@ -112,9 +121,9 @@ local function resolveFamilies(fontIds: { string }, registryPath: string): { [st
 		local familyPath: string?
 
 		if cloudAssetId then
-			familyPath = ufs.normalizePath(`{registryPath}/{cloudAssetId}.json`)
+			familyPath = ufs.normalizePath(`{options.registryPath}/{cloudAssetId}.json`)
 		elseif localPath then
-			familyPath = studioContentFile(localPath)
+			familyPath = studioContentFile(localPath, options)
 		end
 
 		if not familyPath then
@@ -136,7 +145,7 @@ local function resolveFamilies(fontIds: { string }, registryPath: string): { [st
 end
 
 --- Downloads the given cloud font assets into the registry, keyed by font id.
-local function downloadFontFiles(assetIdsByFontId: { [string]: number }, registryPath: string): { [string]: string }
+local function downloadFontFiles(assetIdsByFontId: { [string]: number }, options: ResolveOptions): { [string]: string }
 	local downloadedPaths: { [string]: string } = {}
 	local requestBody: { AssetDelivery.BatchRequest } = {}
 
@@ -164,7 +173,8 @@ local function downloadFontFiles(assetIdsByFontId: { [string]: number }, registr
 		end
 
 		-- Cached downloads are named after the family id, not the face asset id
-		local pathWithoutExtension = ufs.normalizePath(`{registryPath}/fonts/{stripPrefix(fontId, RBXASSETID_PREFIX)}`)
+		local pathWithoutExtension =
+			ufs.normalizePath(`{options.registryPath}/fonts/{stripPrefix(fontId, RBXASSETID_PREFIX)}`)
 		local cachedPath = findCachedFontFile(pathWithoutExtension)
 
 		if cachedPath then
@@ -199,7 +209,7 @@ end
 
 --- Resolves each family's regular face to a font file on disk, downloading
 --- cloud faces in a single batch.
-local function resolveFontFiles(families: { [string]: FontFamily }, registryPath: string): { [string]: string }
+local function resolveFontFiles(families: { [string]: FontFamily }, options: ResolveOptions): { [string]: string }
 	local fontFilePaths: { [string]: string } = {}
 	local pendingAssetIds: { [string]: number } = {}
 
@@ -221,11 +231,11 @@ local function resolveFontFiles(families: { [string]: FontFamily }, registryPath
 			continue
 		end
 
-		fontFilePaths[fontId] = studioContentFile(localPath)
+		fontFilePaths[fontId] = studioContentFile(localPath, options)
 	end
 
 	if next(pendingAssetIds) then
-		for fontId, downloadedPath in downloadFontFiles(pendingAssetIds, registryPath) do
+		for fontId, downloadedPath in downloadFontFiles(pendingAssetIds, options) do
 			fontFilePaths[fontId] = downloadedPath
 		end
 	end
