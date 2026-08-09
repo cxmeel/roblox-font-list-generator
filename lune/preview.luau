@@ -7,6 +7,7 @@ local net = require("@lune/net")
 local process = require("@lune/process")
 local rbx = require("./utils/rbx")
 local serde = require("@lune/serde")
+local sfnt = require("./utils/sfnt")
 local ufs = require("./utils/ufs")
 
 local REGISTRY_ARG_POS = table.find(process.args, "--registry")
@@ -205,7 +206,7 @@ if next(remoteFontIds) then
 		local downloadUrl = responseItem.locations[1].location
 
 		local fontFilePathName = ufs.normalizePath(`{REGISTRY_PATH}/fonts/{responseItem.requestId:sub(14)}`)
-		local fontFilePath: string
+		local fontFilePath: string?
 
 		for _, fileType in FONT_FILE_TYPES do
 			local potentialPath = `{fontFilePathName}.{fileType}`
@@ -216,14 +217,14 @@ if next(remoteFontIds) then
 			end
 		end
 
-		if fs.isFile(fontFilePath) then
+		if fontFilePath then
 			logger.debug(`Font asset {responseItem.requestId} already exists at {fontFilePath}, skipping download.`)
 			fontFilePaths[responseItem.requestId] = fontFilePath
 
 			continue
 		end
 
-		logger.debug(`> Downloading font asset {responseItem.requestId} from {downloadUrl} to {fontFilePath}`)
+		logger.debug(`> Downloading font asset {responseItem.requestId} from {downloadUrl}`)
 
 		local downloadResponse = net.request({ url = downloadUrl })
 
@@ -235,10 +236,12 @@ if next(remoteFontIds) then
 		end
 
 		local fontFileType = determineFontFileType(downloadResponse.body) or "otf"
-		fontFilePath = `{fontFilePathName}.{fontFileType}`
+		local downloadedFilePath = `{fontFilePathName}.{fontFileType}`
 
-		ufs.writeFile(fontFilePath, downloadResponse.body)
-		fontFilePaths[responseItem.requestId] = fontFilePath
+		ufs.writeFile(downloadedFilePath, downloadResponse.body)
+		fontFilePaths[responseItem.requestId] = downloadedFilePath
+
+		logger.debug(`> Saved font asset {responseItem.requestId} to {downloadedFilePath}`)
 	end
 end
 
@@ -248,7 +251,7 @@ local PREVIEW_TEXT = PREVIEW_TEXT_ARG_POS and process.args[PREVIEW_TEXT_ARG_POS 
 	or "The quick brown fox jumps over the lazy dog."
 
 local IMAGE_WIDTH_ARG_POS = table.find(process.args, "--width")
-local IMAGE_WIDTH = IMAGE_WIDTH_ARG_POS and tonumber(process.args[PREVIEW_TEXT + 1]) or 1024
+local IMAGE_WIDTH = IMAGE_WIDTH_ARG_POS and tonumber(process.args[IMAGE_WIDTH_ARG_POS + 1]) or 1024
 
 local FONT_HASH_RAW_CONTENT = {}
 
@@ -256,35 +259,204 @@ for fontId in fontFilePaths do
 	table.insert(FONT_HASH_RAW_CONTENT, fontId)
 end
 
+table.sort(FONT_HASH_RAW_CONTENT)
+
+-- The text and width change the output, so they have to change the file name too
+table.insert(FONT_HASH_RAW_CONTENT, PREVIEW_TEXT)
+table.insert(FONT_HASH_RAW_CONTENT, tostring(IMAGE_WIDTH))
+
 local FONTS_HASH = serde.hash("md5", table.concat(FONT_HASH_RAW_CONTENT, ","))
 
 local OUTPUT_DIR_ARG_POS = table.find(process.args, "--output")
-local OUTPUT_FILE_NAME = ufs.normalizePath(`{OUTPUT_DIR_ARG_POS or `{process.cwd}/temp`}/{FONTS_HASH}`)
+local OUTPUT_FILE_NAME = ufs.normalizePath(
+	`{OUTPUT_DIR_ARG_POS and process.args[OUTPUT_DIR_ARG_POS + 1] or `{process.cwd}/temp/preview`}/{FONTS_HASH}`
+)
 
 local SVG_PATH_BLACK = `{OUTPUT_FILE_NAME}_black.svg`
 local SVG_PATH_WHITE = `{OUTPUT_FILE_NAME}_white.svg`
 
 --[[
-    Generate a preview image of all the specified fonts using the preview text.
+	Generate a preview image of all the specified fonts using the preview text.
 
-    It will generate an SVG of each font in a column, with the preview text rendered
-    in each font, and the font name above each preview in a smaller, generic, sans-serif
-    font.
+	Each font gets a block in a single column: the family name in a small generic
+	sans-serif, and the preview text below it rendered in the font itself.
 
-    Text will be white in the white SVG file and black in the black SVG file. Background
-    will always be fully transparent. These images can then be used on GitHub to show
-    different images, depending on whether the user is using the dark or light theme.
+	GitHub serves README images through Camo and renders them as `<img>`, which is
+	a sandbox with no access to external or embedded webfonts. So the preview text
+	cannot be `<text>` -- every glyph is emitted as an outline `<path>` instead,
+	defined once per unique glyph and placed with `<use>`.
 
-    Example:
-
-    ***
-    Arimo
-    (in Arimo) The quick brown dog jumps over the lazy dog.
-
-    Builder Sans
-    (in Builder Sans) The quick brown dog jumps over the lazy dog.
-
-    Nunito
-    (in Nunito) The quick brown dog jumps over the lazy dog.
-    ***
+	Two files are written with identical geometry and a different fill, for use
+	with a `<picture>` element keyed on `prefers-color-scheme`.
 ]]
+
+-- Layout constants, in SVG user units
+local PADDING = 24
+local LABEL_SIZE = 13
+local LABEL_GAP = 10
+local BLOCK_GAP = 22
+local MAX_SAMPLE_SIZE = 32
+local LABEL_FONT_FAMILY = "-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif"
+local LABEL_OPACITY = "0.55"
+
+local XML_ESCAPES = {
+	["&"] = "&amp;",
+	["<"] = "&lt;",
+	[">"] = "&gt;",
+	['"'] = "&quot;",
+	["'"] = "&apos;",
+}
+
+local function escapeXml(value: string): string
+	return (value:gsub("[&<>\"']", XML_ESCAPES))
+end
+
+--- Formats a coordinate with just enough precision, without trailing zeroes.
+local function number(value: number): string
+	if value == math.round(value) then
+		return string.format("%d", value)
+	end
+
+	return (string.format("%.3f", value):gsub("0+$", ""))
+end
+
+type PreviewEntry = {
+	name: string,
+	font: sfnt.Font,
+	glyphs: { sfnt.Glyph },
+	--- Advance width of the preview text, in ems.
+	emWidth: number,
+}
+
+-- Parse each font file and shape the preview text, keeping CLI argument order
+local previewEntries: { PreviewEntry } = {}
+local seenFontIds: { [string]: boolean } = {}
+
+for _, fontId in fontIdList do
+	if seenFontIds[fontId] then
+		continue
+	end
+
+	seenFontIds[fontId] = true
+
+	local fontFilePath = fontFilePaths[fontId]
+
+	if not fontFilePath then
+		logger.error(`No font file resolved for: {fontId}`)
+		process.exit(1)
+	end
+
+	local parsedFont = sfnt.parse(fs.readFile(fontFilePath))
+
+	if not parsedFont then
+		logger.error(`Could not parse font file: {fontFilePath}`)
+		process.exit(1)
+		continue
+	end
+
+	local glyphs = parsedFont:shape(PREVIEW_TEXT)
+	local advance = 0
+
+	for _, glyph in glyphs do
+		advance += glyph.advance
+	end
+
+	logger.debug(`> Shaped {#glyphs} glyphs for {fontContentIds[fontId].name} from {fontFilePath}`)
+
+	table.insert(previewEntries, {
+		name = fontContentIds[fontId].name,
+		font = parsedFont,
+		glyphs = glyphs,
+		emWidth = advance / parsedFont.unitsPerEm,
+	})
+end
+
+if #previewEntries == 0 then
+	logger.error("No fonts left to preview")
+	process.exit(1)
+end
+
+-- Pick one sample size shared by every font, so the comparison is fair, and
+-- shrink it if the widest line would otherwise overflow the target width
+local widestEm = 0
+
+for _, entry in previewEntries do
+	widestEm = math.max(widestEm, entry.emWidth)
+end
+
+local sampleSize = MAX_SAMPLE_SIZE
+
+if widestEm > 0 then
+	sampleSize = math.min(MAX_SAMPLE_SIZE, (IMAGE_WIDTH - PADDING * 2) / widestEm)
+end
+
+local glyphDefinitions: { string } = {}
+local definedGlyphs: { [string]: boolean } = {}
+local bodyElements: { string } = {}
+
+local cursorY = PADDING
+
+for index, entry in previewEntries do
+	local entryFont = entry.font
+	local scale = sampleSize / entryFont.unitsPerEm
+
+	local labelBaseline = cursorY + LABEL_SIZE
+	local sampleBaseline = labelBaseline + LABEL_GAP + entryFont.ascender * scale
+
+	table.insert(
+		bodyElements,
+		`<text x="{PADDING}" y="{number(labelBaseline)}" font-family="{LABEL_FONT_FAMILY}"`
+			.. ` font-size="{LABEL_SIZE}" opacity="{LABEL_OPACITY}">{escapeXml(entry.name)}</text>`
+	)
+
+	local placements: { string } = {}
+	local penX = 0
+
+	for _, glyph in entry.glyphs do
+		-- Whitespace and unmapped glyphs still advance the pen, but draw nothing
+		if glyph.pathData ~= "" then
+			local glyphKey = `f{index}g{glyph.glyphId}`
+
+			if not definedGlyphs[glyphKey] then
+				definedGlyphs[glyphKey] = true
+				table.insert(glyphDefinitions, `<path id="{glyphKey}" d="{glyph.pathData}"/>`)
+			end
+
+			table.insert(placements, `<use href="#{glyphKey}" x="{number(penX)}"/>`)
+		end
+
+		penX += glyph.advance
+	end
+
+	-- Font units are Y up and SVG is Y down, hence the negative vertical scale
+	table.insert(
+		bodyElements,
+		`<g transform="translate({PADDING} {number(sampleBaseline)}) scale({number(scale)} -{number(scale)})">`
+			.. `{table.concat(placements)}</g>`
+	)
+
+	cursorY = sampleBaseline - entryFont.descender * scale + BLOCK_GAP
+end
+
+local imageWidth = math.ceil(math.min(IMAGE_WIDTH, widestEm * sampleSize + PADDING * 2))
+local imageHeight = math.ceil(cursorY - BLOCK_GAP + PADDING)
+
+local svgDefinitions = table.concat(glyphDefinitions)
+local svgBody = table.concat(bodyElements)
+local svgTitle = escapeXml(`Font preview: {PREVIEW_TEXT}`)
+
+local function buildSvg(fill: string): string
+	return `<svg xmlns="http://www.w3.org/2000/svg" width="{imageWidth}" height="{imageHeight}"`
+		.. ` viewBox="0 0 {imageWidth} {imageHeight}" role="img">`
+		.. `<title>{svgTitle}</title>`
+		.. `<defs>{svgDefinitions}</defs>`
+		.. `<g fill="{fill}">{svgBody}</g>`
+		.. `</svg>`
+end
+
+ufs.writeFile(SVG_PATH_BLACK, buildSvg("#000000"))
+ufs.writeFile(SVG_PATH_WHITE, buildSvg("#ffffff"))
+
+logger.log(`Wrote {#previewEntries} font previews:`)
+logger.log(`  {SVG_PATH_BLACK}`)
+logger.log(`  {SVG_PATH_WHITE}`)
