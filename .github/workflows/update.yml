@@ -17,7 +17,7 @@ on:
 
 jobs:
   update-font-list:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -48,6 +48,8 @@ jobs:
           fi
 
       - name: Update Font List
+        env:
+          ROBLOX_OPEN_CLOUD_API_KEY: ${{ secrets.ROBLOX_OPEN_CLOUD_API_KEY }}
         run: lune run generate -- -vv
 
       - name: Create diff file
@@ -137,25 +139,61 @@ jobs:
           mkdir -p temp/content/fonts
           7z x "-otemp/content/fonts" "${FONT_PACKAGE}" -y > /dev/null
 
+      # GitHub will not render an SVG served from a release asset, so the
+      # previews are rasterised before they go into the notes
+      - name: Install resvg
+        if: steps.additions.outputs.has_additions == 'true'
+        continue-on-error: true
+        shell: bash
+        run: |
+          RESVG_VERSION="0.48.1"
+          DEST="${RUNNER_TEMP}/resvg"
+
+          mkdir -p "${DEST}"
+          curl -sSfL "https://github.com/linebender/resvg/releases/download/v${RESVG_VERSION}/resvg-linux-x86_64.tar.gz" \
+            | tar -xz -C "${DEST}"
+
+          BIN=$(find "${DEST}" -type f -name resvg | head -n1)
+
+          if [ -z "${BIN}" ]; then
+            echo "No resvg binary in the release archive" >&2
+            exit 1
+          fi
+
+          chmod +x "${BIN}"
+          echo "$(dirname "${BIN}")" >> "${GITHUB_PATH}"
+          "${BIN}" --version
+
       # Never block a release on the preview; the notes simply omit it
       - name: Generate font previews
         id: previews
         if: steps.additions.outputs.has_additions == 'true'
         continue-on-error: true
         shell: bash
+        env:
+          ROBLOX_OPEN_CLOUD_API_KEY: ${{ secrets.ROBLOX_OPEN_CLOUD_API_KEY }}
         run: |
+          # --resvg rasterises with whatever is on PATH, which the previous step
+          # put there. PNGs come out at 2x alongside the SVGs.
           lune run preview -- \
             --fonts "${{ steps.additions.outputs.fonts }}" \
             --content temp/content \
             --width 900 \
             --text "You make the game! It's free!"\
             --output build/preview \
+            --resvg \
             -vv
 
-          # The generated pair is named after a hash of its inputs; the release
-          # assets need a stable name to be linked from the notes
-          mv "$(ls build/preview/*_black.svg)" build/font-preview-light.svg
-          mv "$(ls build/preview/*_white.svg)" build/font-preview-dark.svg
+          # The generated files are named after a hash of their inputs; the
+          # release assets need a stable name to be linked from the notes
+          for FORMAT in svg png; do
+            mv "$(ls build/preview/*_black.${FORMAT})" "build/font-preview-light.${FORMAT}"
+            mv "$(ls build/preview/*_white.${FORMAT})" "build/font-preview-dark.${FORMAT}"
+          done
+
+          # Displayed at the SVG's own width so the 2x PNG stays sharp
+          WIDTH=$(sed -nE 's/.*<svg[^>]*width="([0-9]+)".*/\1/p' build/font-preview-light.svg | head -n1)
+          echo "width=${WIDTH:-900}" >> $GITHUB_OUTPUT
 
       - name: Build release notes
         id: release_notes
@@ -185,6 +223,7 @@ jobs:
           fi
 
           ASSETS="https://github.com/${{ github.repository }}/releases/download/${{ steps.create_tag.outputs.tag }}"
+          PREVIEW_WIDTH="${{ steps.previews.outputs.width }}"
 
           {
             echo "${SUMMARY}"
@@ -202,11 +241,11 @@ jobs:
               echo '```'
             fi
 
-            if [ -f build/font-preview-light.svg ] && [ -f build/font-preview-dark.svg ]; then
+            if [ -f build/font-preview-light.png ] && [ -f build/font-preview-dark.png ]; then
               echo
               echo "<picture>"
-              echo "  <source media=\"(prefers-color-scheme: dark)\" srcset=\"${ASSETS}/font-preview-dark.svg\">"
-              echo "  <img alt=\"Preview of the fonts added in this release\" src=\"${ASSETS}/font-preview-light.svg\">"
+              echo "  <source media=\"(prefers-color-scheme: dark)\" srcset=\"${ASSETS}/font-preview-dark.png\">"
+              echo "  <img alt=\"Preview of the fonts added in this release\" width=\"${PREVIEW_WIDTH}\" src=\"${ASSETS}/font-preview-light.png\">"
               echo "</picture>"
             fi
           } > build/ReleaseNotes.md
@@ -224,6 +263,8 @@ jobs:
           files: |
             build/FontList.luau
             build/FontList.json
+            build/font-preview-light.png
+            build/font-preview-dark.png
             build/font-preview-light.svg
             build/font-preview-dark.svg
 

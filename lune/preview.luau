@@ -8,16 +8,30 @@ local FontRegistry = require("./lib/FontRegistry")
 
 local args = require("./utils/args")
 local logger = require("./utils/logger")
+local rbx = require("./utils/rbx")
+local resvg = require("./utils/resvg")
 local ufs = require("./utils/ufs")
 
 local DEFAULT_REGISTRY_PATH = "./temp/downloads"
 local DEFAULT_OUTPUT_PATH = "./temp/preview"
 local DEFAULT_PREVIEW_TEXT = "The quick brown fox jumps over the lazy dog."
 local DEFAULT_IMAGE_WIDTH = 1024
+local DEFAULT_PREVIEW_SCALE = 2
+
+-- resvg needs a real font for the labels, which are the only part of the SVG
+-- left as text. Roblox ships Arimo, a neutral sans, in both a Studio install
+-- and the fonts package, so the family name is known alongside the file name.
+local LABEL_FONT_FILE = "fonts/Arimo-Regular.ttf"
+local LABEL_FONT_FAMILY = "Arimo"
 
 local FONT_IDS = args.value("--fonts")
 local PREVIEW_TEXT = args.valueOr("--text", DEFAULT_PREVIEW_TEXT)
 local IMAGE_WIDTH = args.numberOr("--width", DEFAULT_IMAGE_WIDTH)
+
+-- `--resvg` on its own rasterises with whatever is on PATH; give it a path to
+-- use a binary that is not
+local RASTERIZE, RESVG_COMMAND = args.optionalValue("--resvg")
+local PREVIEW_SCALE = args.numberOr("--scale", DEFAULT_PREVIEW_SCALE)
 
 if not FONT_IDS then
 	logger.error("Missing --fonts argument")
@@ -104,6 +118,73 @@ local composition = FontPreview.compose(previewFonts, {
 ufs.writeFile(SVG_PATH_BLACK, FontPreview.render(composition, "#000000"))
 ufs.writeFile(SVG_PATH_WHITE, FontPreview.render(composition, "#ffffff"))
 
+local writtenPaths = { SVG_PATH_BLACK, SVG_PATH_WHITE }
+
+--- Finds a font for resvg to set the labels in. Checked in the same order the
+--- fonts themselves are resolved: an explicit content directory first, then a
+--- Studio installation, which is absent on platforms Studio does not run on.
+local function resolveLabelFont(): string?
+	local roots: { string } = {}
+
+	if CONTENT_PATH then
+		table.insert(roots, CONTENT_PATH)
+	end
+
+	local studioOk, studioContent = pcall(rbx.studioContentPath)
+
+	if studioOk and studioContent then
+		table.insert(roots, studioContent)
+	end
+
+	for _, root in roots do
+		local candidatePath = ufs.normalizePath(`{root}/{LABEL_FONT_FILE}`)
+
+		if fs.isFile(candidatePath) then
+			return candidatePath
+		end
+	end
+
+	return nil
+end
+
+if RASTERIZE then
+	if not resvg.isAvailable(RESVG_COMMAND) then
+		logger.error(
+			`Could not run "{RESVG_COMMAND or resvg.DEFAULT_COMMAND}". Install it with `
+				.. `"cargo install resvg", or point --resvg at an existing binary.`
+		)
+		process.exit(1)
+	end
+
+	local labelFontFile = resolveLabelFont()
+
+	-- Losing the labels is silent otherwise: resvg renders every glyph, drops
+	-- the text it has no font for, and says so only on stderr
+	if not labelFontFile then
+		logger.warn(`No {LABEL_FONT_FILE} found to set labels in; falling back to the fonts installed here`)
+	end
+
+	for _, svgPath in { SVG_PATH_BLACK, SVG_PATH_WHITE } do
+		local pngPath = `{svgPath:sub(1, -5)}.png`
+
+		local renderOk, reason = resvg.render(svgPath, pngPath, {
+			command = RESVG_COMMAND,
+			scale = PREVIEW_SCALE,
+			fontFile = labelFontFile,
+			fontFamily = LABEL_FONT_FAMILY,
+		})
+
+		if not renderOk then
+			logger.error(`Failed to rasterise {svgPath}: {reason}`)
+			process.exit(1)
+		end
+
+		table.insert(writtenPaths, pngPath)
+	end
+end
+
 logger.log(`Wrote {composition.count} font previews:`)
-logger.log(`  {SVG_PATH_BLACK}`)
-logger.log(`  {SVG_PATH_WHITE}`)
+
+for _, writtenPath in writtenPaths do
+	logger.log(`  {writtenPath}`)
+end

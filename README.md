@@ -29,6 +29,36 @@ The font list will be written to `build/FontList.luau` in the current directory,
 
 Every command takes `-v` for progress logging, or `-vv` to include debug detail.
 
+### Authentication
+
+Roblox has required authentication on the asset delivery endpoints since April
+2025, and throttles unauthenticated traffic — which is what a CI runner looks
+like from the outside. `generate` and `preview` both accept an optional
+`--auth`:
+
+| Form | Credential |
+| --- | --- |
+| *omitted* | Whatever the environment carries: `ROBLOX_OPEN_CLOUD_API_KEY`, then `ROBLOSECURITY`. Unauthenticated if neither is set. |
+| `--auth` | A `.ROBLOSECURITY` cookie: `ROBLOSECURITY` from the environment if set, otherwise one from a Roblox installation on this machine. |
+| `--auth <value>` | The given credential, sent as whichever kind it turns out to be. |
+
+A value is classified by what it looks like rather than by where it came from, so
+either kind works anywhere one is accepted. Cookies carry the warning text
+Roblox embeds in them, or arrive already in `.ROBLOSECURITY=` form; anything
+else is treated as an API key. A cookie put in `ROBLOX_OPEN_CLOUD_API_KEY` still
+authenticates as a cookie rather than silently failing.
+
+Credentials can also live in a `.env` file in the working directory — see
+[`.env.example`](.env.example). Real environment variables take precedence, so
+CI supplies the same names as secrets. Passing a credential as `--auth <value>`
+works but puts it in process listings and usually in CI logs, so the command
+warns when you do.
+
+> [!CAUTION]
+> A `.ROBLOSECURITY` cookie is full access to the account it belongs to, not a
+> scoped credential. An Open Cloud API key can be scoped and revoked
+> individually, so prefer one wherever it is sufficient.
+
 ### `generate`
 
 Builds the font list from the current Roblox Studio release and the cloud font
@@ -80,6 +110,8 @@ lune run preview -- --fonts "rbxasset://fonts/families/BuilderSans.json,rbxasset
 | `--output <dir>` | `temp/preview` | Where the pair is written. Files are named after a hash of the inputs. |
 | `--registry <dir>` | `temp/downloads` | Where cloud font descriptors and downloads are kept. Runs `generate` first if it does not exist. |
 | `--content <dir>` | Studio install | Overrides the Roblox Studio content directory that local fonts are read from. |
+| `--resvg [path]` | off | Also write PNGs, using [resvg](https://github.com/linebender/resvg). On its own it uses whatever is on `PATH`; give it a path to use a binary that is not. |
+| `--scale <factor>` | `2` | Multiplies the PNG dimensions, so a preview stays sharp when displayed at the SVG's nominal width. |
 
 Fonts are laid out alphabetically by family name, regardless of the order they
 are listed in. Every glyph is emitted as an outline path rather than as text,
@@ -90,6 +122,14 @@ so a `<text>` element would silently fall back to a default face.
 Studio fonts package into a directory named `fonts` and point at its parent;
 the workflow in this repository does exactly that to render previews on a
 runner.
+
+`--resvg` writes a matching pair of PNGs alongside the SVGs, for places that
+will not render an SVG at all — GitHub release notes being the case this was
+added for. resvg is not bundled; install it with `cargo install resvg`, or
+grab a [prebuilt binary](https://github.com/linebender/resvg/releases) if one
+exists for your platform. Labels are set in Arimo, taken from the same content
+directory as the fonts themselves, so the output does not depend on which
+fonts happen to be installed on the machine doing the rendering.
 
 Embed the pair with a `<picture>` element so it follows the reader's theme:
 
