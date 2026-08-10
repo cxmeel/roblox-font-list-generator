@@ -29,6 +29,30 @@ The font list will be written to `build/FontList.luau` in the current directory,
 
 Every command takes `-v` for progress logging, or `-vv` to include debug detail.
 
+### Authentication
+
+Roblox has required authentication on the asset delivery endpoints since April
+2025, and throttles unauthenticated traffic — which is what a CI runner looks
+like from the outside. `generate` and `preview` both accept an optional
+`--auth`:
+
+| Form | Credential |
+| --- | --- |
+| *omitted* | Unauthenticated, unless `ROBLOX_OPEN_CLOUD_API_KEY` is set, in which case that is used. |
+| `--auth` | A `.ROBLOSECURITY` cookie: `ROBLOSECURITY` from the environment if set, otherwise one from a Roblox installation on this machine. |
+| `--auth <key>` | The given Open Cloud API key. |
+
+Credentials can also live in a `.env` file in the working directory — see
+[`.env.example`](.env.example). Real environment variables take precedence, so
+CI supplies the same names as secrets. Passing a key as `--auth <key>` works but
+puts it in process listings and usually in CI logs, so the command warns when
+you do.
+
+> [!CAUTION]
+> A `.ROBLOSECURITY` cookie is full access to the account it belongs to, not a
+> scoped credential. An Open Cloud API key can be scoped and revoked
+> individually, so prefer one wherever it is sufficient.
+
 ### `generate`
 
 Builds the font list from the current Roblox Studio release and the cloud font

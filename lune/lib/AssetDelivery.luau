@@ -16,6 +16,7 @@ local net = require("@lune/net")
 local serde = require("@lune/serde")
 local task = require("@lune/task")
 
+local auth = require("../utils/auth")
 local logger = require("../utils/logger")
 
 export type BatchRequest = {
@@ -79,15 +80,27 @@ local function backoffSeconds(response: net.FetchResponse, attempt: number): num
 	return math.min(INITIAL_BACKOFF * 2 ^ (attempt - 1), MAX_BACKOFF)
 end
 
+--- Base headers plus whatever credential was configured, if any.
+local function buildHeaders(): { [string]: string }
+	local headers = table.clone(REQUEST_HEADERS)
+
+	for key, value in auth.headers() do
+		headers[key] = value
+	end
+
+	return headers
+end
+
 local function requestChunk(requests: { BatchRequest }): { BatchResult }
 	local body = serde.encode("json", requests, false)
+	local headers = buildHeaders()
 
 	for attempt = 1, MAX_ATTEMPTS do
 		local response = net.request({
 			url = BATCH_ASSET_URL,
 			method = "POST",
 			body = body,
-			headers = REQUEST_HEADERS,
+			headers = headers,
 		})
 
 		if response.ok then

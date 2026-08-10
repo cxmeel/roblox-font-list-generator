@@ -48,6 +48,8 @@ jobs:
           fi
 
       - name: Update Font List
+        env:
+          ROBLOX_OPEN_CLOUD_API_KEY: ${{ secrets.ROBLOX_OPEN_CLOUD_API_KEY }}
         run: lune run generate -- -vv
 
       - name: Create diff file
@@ -168,6 +170,8 @@ jobs:
         if: steps.additions.outputs.has_additions == 'true'
         continue-on-error: true
         shell: bash
+        env:
+          ROBLOX_OPEN_CLOUD_API_KEY: ${{ secrets.ROBLOX_OPEN_CLOUD_API_KEY }}
         run: |
           # --resvg rasterises with whatever is on PATH, which the previous step
           # put there. PNGs come out at 2x alongside the SVGs.
