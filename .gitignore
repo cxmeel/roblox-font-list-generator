@@ -2,6 +2,9 @@ temp/
 build/
 wally.toml
 
+# Tools the workflow downloads into the workspace
+.tools/
+
 # Credentials
 .env
 .env.*

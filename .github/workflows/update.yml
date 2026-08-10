@@ -17,7 +17,10 @@ on:
 
 jobs:
   update-font-list:
-    runs-on: ubuntu-latest
+    # The Studio fonts package stores its paths with Windows separators, which
+    # p7zip keeps as literal characters in the file name rather than treating as
+    # directories, so the families directory never appears on a Linux runner
+    runs-on: windows-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -146,23 +149,27 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
-          RESVG_VERSION="0.48.1"
-          DEST="${RUNNER_TEMP}/resvg"
+          # 0.47.0 is the most recent release with a prebuilt Windows binary;
+          # later ones ship Linux and macOS only
+          RESVG_VERSION="0.47.0"
+          DEST=".tools/resvg"
 
           mkdir -p "${DEST}"
-          curl -sSfL "https://github.com/linebender/resvg/releases/download/v${RESVG_VERSION}/resvg-linux-x86_64.tar.gz" \
-            | tar -xz -C "${DEST}"
+          curl -sSfL -o "${DEST}/resvg.zip" \
+            "https://github.com/linebender/resvg/releases/download/v${RESVG_VERSION}/resvg-win64.zip"
+          7z x "-o${DEST}" "${DEST}/resvg.zip" -y > /dev/null
 
-          BIN=$(find "${DEST}" -type f -name resvg | head -n1)
+          BIN=$(find "${DEST}" -type f -name 'resvg.exe' | head -n1)
 
           if [ -z "${BIN}" ]; then
             echo "No resvg binary in the release archive" >&2
             exit 1
           fi
 
-          chmod +x "${BIN}"
-          echo "$(dirname "${BIN}")" >> "${GITHUB_PATH}"
           "${BIN}" --version
+
+          # pwd -W gives a path both bash and pwsh can use in later steps
+          echo "$(cd "$(dirname "${BIN}")" && pwd -W)" >> "${GITHUB_PATH}"
 
       # Never block a release on the preview; the notes simply omit it
       - name: Generate font previews
