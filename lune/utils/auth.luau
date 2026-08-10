@@ -34,6 +34,9 @@ local COOKIE_VARIABLE = "ROBLOSECURITY"
 local COOKIE_PREFIX = ".ROBLOSECURITY="
 local AUTH_ARGUMENT = "--auth"
 
+--- Roblox bakes this into every `.ROBLOSECURITY` value.
+local COOKIE_WARNING_MARKER = "_|WARNING:-DO-NOT-SHARE-THIS"
+
 local resolved: Credential? = nil
 
 --- Accepts either a bare cookie value or one already in header form.
@@ -45,18 +48,49 @@ local function asCookieHeader(cookie: string): string
 	return `{COOKIE_PREFIX}{cookie}`
 end
 
+--- Cookies and API keys are both long opaque strings, so tell them apart by the
+--- warning Roblox embeds in a cookie, or by it already being in header form.
+--- Anything else is taken to be an API key.
+local function looksLikeCookie(value: string): boolean
+	return value:find(COOKIE_PREFIX, 1, true) ~= nil or value:find(COOKIE_WARNING_MARKER, 1, true) ~= nil
+end
+
+--- Builds a credential from a secret, choosing the header by what it looks
+--- like rather than by where it came from, so a cookie handed to the API key
+--- variable still authenticates instead of silently failing.
+local function credentialFor(secret: string, source: string): Credential
+	if looksLikeCookie(secret) then
+		logger.info(`Authenticating with a Roblox cookie from {source}`)
+
+		return { kind = "cookie", headers = { Cookie = asCookieHeader(secret) } }
+	end
+
+	logger.info(`Authenticating with an Open Cloud API key from {source}`)
+
+	return { kind = "apiKey", headers = { ["x-api-key"] = secret } }
+end
+
 local function resolve(): Credential
 	if resolved then
 		return resolved
 	end
 
 	local hasAuthArgument, authValue = args.optionalValue(AUTH_ARGUMENT)
+	local credential: Credential
 
-	-- Bare --auth: a cookie from the environment first, so a runner with no
-	-- Roblox installation still has a way in, then one from an install here
-	if hasAuthArgument and not authValue then
-		local suppliedCookie = dotenv.get(COOKIE_VARIABLE)
-		local cookie = suppliedCookie
+	if authValue then
+		-- Anything on the command line is visible to other processes and tends
+		-- to end up in CI logs, so say so rather than accepting it quietly
+		logger.warn(
+			`Reading a credential from {AUTH_ARGUMENT} exposes it to process listings; `
+				.. `prefer {API_KEY_VARIABLE} or {COOKIE_VARIABLE} in the environment or {dotenv.ENV_FILE_PATH}`
+		)
+
+		credential = credentialFor(authValue, AUTH_ARGUMENT)
+	elseif hasAuthArgument then
+		-- Bare --auth asks for a cookie: from the environment first, so a runner
+		-- with no Roblox installation still has a way in, then from an install
+		local cookie = dotenv.get(COOKIE_VARIABLE)
 		local source = COOKIE_VARIABLE
 
 		if not cookie then
@@ -68,46 +102,26 @@ local function resolve(): Credential
 		if not cookie then
 			logger.error(
 				`Could not read a Roblox auth cookie. Sign in to Roblox Studio here, set {COOKIE_VARIABLE}, `
-					.. `or pass an Open Cloud API key with {AUTH_ARGUMENT} <key>.`
+					.. `or pass a credential with {AUTH_ARGUMENT} <value>.`
 			)
 			process.exit(1)
 		end
 
-		logger.info(`Authenticating with the Roblox cookie from {source}`)
+		credential = credentialFor(cookie :: string, source)
+	else
+		-- No flag: use whichever credential the environment happens to carry
+		local suppliedKey = dotenv.get(API_KEY_VARIABLE)
+		local suppliedCookie = dotenv.get(COOKIE_VARIABLE)
 
-		local credential: Credential = {
-			kind = "cookie",
-			headers = { Cookie = asCookieHeader(cookie :: string) },
-		}
-
-		resolved = credential
-
-		return credential
+		if suppliedKey then
+			credential = credentialFor(suppliedKey, API_KEY_VARIABLE)
+		elseif suppliedCookie then
+			credential = credentialFor(suppliedCookie, COOKIE_VARIABLE)
+		else
+			credential = { kind = "none", headers = {} }
+		end
 	end
 
-	if authValue then
-		-- Anything on the command line is visible to other processes and tends
-		-- to end up in CI logs, so say so rather than accepting it quietly
-		logger.warn(
-			`Reading an API key from {AUTH_ARGUMENT} exposes it to process listings; `
-				.. `prefer {API_KEY_VARIABLE} in the environment or {dotenv.ENV_FILE_PATH}`
-		)
-	end
-
-	local apiKey = authValue or dotenv.get(API_KEY_VARIABLE)
-
-	if apiKey then
-		logger.info(
-			`Authenticating with an Open Cloud API key from {if authValue then AUTH_ARGUMENT else API_KEY_VARIABLE}`
-		)
-
-		local credential: Credential = { kind = "apiKey", headers = { ["x-api-key"] = apiKey } }
-		resolved = credential
-
-		return credential
-	end
-
-	local credential: Credential = { kind = "none", headers = {} }
 	resolved = credential
 
 	return credential

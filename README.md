@@ -38,15 +38,21 @@ like from the outside. `generate` and `preview` both accept an optional
 
 | Form | Credential |
 | --- | --- |
-| *omitted* | Unauthenticated, unless `ROBLOX_OPEN_CLOUD_API_KEY` is set, in which case that is used. |
+| *omitted* | Whatever the environment carries: `ROBLOX_OPEN_CLOUD_API_KEY`, then `ROBLOSECURITY`. Unauthenticated if neither is set. |
 | `--auth` | A `.ROBLOSECURITY` cookie: `ROBLOSECURITY` from the environment if set, otherwise one from a Roblox installation on this machine. |
-| `--auth <key>` | The given Open Cloud API key. |
+| `--auth <value>` | The given credential, sent as whichever kind it turns out to be. |
+
+A value is classified by what it looks like rather than by where it came from, so
+either kind works anywhere one is accepted. Cookies carry the warning text
+Roblox embeds in them, or arrive already in `.ROBLOSECURITY=` form; anything
+else is treated as an API key. A cookie put in `ROBLOX_OPEN_CLOUD_API_KEY` still
+authenticates as a cookie rather than silently failing.
 
 Credentials can also live in a `.env` file in the working directory — see
 [`.env.example`](.env.example). Real environment variables take precedence, so
-CI supplies the same names as secrets. Passing a key as `--auth <key>` works but
-puts it in process listings and usually in CI logs, so the command warns when
-you do.
+CI supplies the same names as secrets. Passing a credential as `--auth <value>`
+works but puts it in process listings and usually in CI logs, so the command
+warns when you do.
 
 > [!CAUTION]
 > A `.ROBLOSECURITY` cookie is full access to the account it belongs to, not a
