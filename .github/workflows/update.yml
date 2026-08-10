@@ -169,43 +169,25 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
+          # --resvg rasterises with whatever is on PATH, which the previous step
+          # put there. PNGs come out at 2x alongside the SVGs.
           lune run preview -- \
             --fonts "${{ steps.additions.outputs.fonts }}" \
             --content temp/content \
             --width 900 \
             --text "You make the game! It's free!"\
             --output build/preview \
+            --resvg \
             -vv
 
-          # The generated pair is named after a hash of its inputs; the release
-          # assets need a stable name to be linked from the notes
-          mv "$(ls build/preview/*_black.svg)" build/font-preview-light.svg
-          mv "$(ls build/preview/*_white.svg)" build/font-preview-dark.svg
-
-          # The labels are the only part of the SVG that is not already an
-          # outline, so give resvg a font for them rather than depending on
-          # whatever the runner happens to have installed. The labels ask for a
-          # stack ending in sans-serif, and --sans-serif-family is what that
-          # generic resolves through; --font-family alone would not be consulted
-          # and the labels would silently render as nothing.
-          FONT_ARGS=()
-
-          if [ -f temp/content/fonts/Arimo-Regular.ttf ]; then
-            FONT_ARGS=(
-              --skip-system-fonts
-              --use-font-file temp/content/fonts/Arimo-Regular.ttf
-              --font-family Arimo
-              --sans-serif-family Arimo
-            )
-          fi
-
-          # Rendered at 2x and displayed at the SVG's own width, so the preview
-          # stays sharp on high density screens
-          for VARIANT in light dark; do
-            resvg "${FONT_ARGS[@]}" --zoom 2 \
-              "build/font-preview-${VARIANT}.svg" "build/font-preview-${VARIANT}.png"
+          # The generated files are named after a hash of their inputs; the
+          # release assets need a stable name to be linked from the notes
+          for FORMAT in svg png; do
+            mv "$(ls build/preview/*_black.${FORMAT})" "build/font-preview-light.${FORMAT}"
+            mv "$(ls build/preview/*_white.${FORMAT})" "build/font-preview-dark.${FORMAT}"
           done
 
+          # Displayed at the SVG's own width so the 2x PNG stays sharp
           WIDTH=$(sed -nE 's/.*<svg[^>]*width="([0-9]+)".*/\1/p' build/font-preview-light.svg | head -n1)
           echo "width=${WIDTH:-900}" >> $GITHUB_OUTPUT
 

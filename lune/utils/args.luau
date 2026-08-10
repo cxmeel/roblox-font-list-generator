@@ -29,6 +29,26 @@ local function valueOr(name: string, default: string): string
 	return value(name) or default
 end
 
+--- Reads a flag whose value is optional, returning whether it was passed at all
+--- and the value if it carried one. Anything starting with a dash is taken to
+--- be the next flag rather than this one's value, so `--name` on its own reads
+--- as present with no value.
+local function optionalValue(name: string): (boolean, string?)
+	local position = table.find(process.args, name)
+
+	if not position then
+		return false, nil
+	end
+
+	local candidate = process.args[position + 1]
+
+	if not candidate or candidate:sub(1, 1) == "-" then
+		return true, nil
+	end
+
+	return true, candidate
+end
+
 local function numberOr(name: string, default: number): number
 	local raw = value(name)
 
@@ -39,5 +59,6 @@ return {
 	has = has,
 	value = value,
 	valueOr = valueOr,
+	optionalValue = optionalValue,
 	numberOr = numberOr,
 }
