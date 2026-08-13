@@ -8,8 +8,17 @@
 	preview treats them as fatal.
 
 	The endpoint rate limits aggressively against datacenter addresses, which is
-	exactly where CI runs, so requests are kept small, paced apart, and retried
-	with backoff on a 429.
+	exactly where CI runs, so requests are kept small, paced apart, and worked
+	through a ladder of endpoints:
+
+	1. v2 with whatever credential is configured, retried five times with
+	   exponential backoff reaching a minute.
+	2. v1 with no credential at all, on the same ladder. This generator ran
+	   against v1 unauthenticated for a long time without trouble, so it is
+	   worth one genuinely different-looking attempt before giving up.
+
+	Whichever rung answers is remembered for the rest of the run, so a later
+	chunk does not walk a ladder that has already been shown to fail.
 ]]
 
 local net = require("@lune/net")
@@ -36,7 +45,16 @@ export type BatchResult = {
 	errors: { { code: number, message: string } }?,
 }
 
-local BATCH_ASSET_URL = "https://assetdelivery.roblox.com/v2/assets/batch"
+type Endpoint = {
+	url: string,
+	--- Whether the configured credential is attached to the request.
+	authenticated: boolean,
+}
+
+local ENDPOINTS: { Endpoint } = {
+	{ url = "https://assetdelivery.roblox.com/v2/assets/batch", authenticated = true },
+	{ url = "https://assetdelivery.roblox.com/v1/assets/batch", authenticated = false },
+}
 
 --- Deliberately small. The endpoint accepts far more per call, but large
 --- batches draw a 429 from a runner, where v1 was happy with thirty at a time.
@@ -45,6 +63,8 @@ local MAX_BATCH_SIZE = 30
 --- Seconds between chunks, so a long run does not arrive as a burst.
 local CHUNK_INTERVAL = 1
 
+--- Attempts per endpoint. The backoff doubles from INITIAL_BACKOFF and is
+--- capped, so the waits run 5, 10, 20, 40, 60 seconds.
 local MAX_ATTEMPTS = 5
 local INITIAL_BACKOFF = 5
 local MAX_BACKOFF = 60
@@ -66,6 +86,9 @@ local REQUEST_HEADERS: { [string]: string } = {
 	["Roblox-Browser-Asset-Request"] = "true",
 }
 
+--- The rung that last answered, so the ladder is not walked again per chunk.
+local preferredEndpoint = 1
+
 --- How long to wait before retrying. `Retry-After` wins when the response
 --- carries one as a plain delay; a date-formatted value falls through to the
 --- exponential backoff rather than being parsed.
@@ -80,9 +103,13 @@ local function backoffSeconds(response: net.FetchResponse, attempt: number): num
 	return math.min(INITIAL_BACKOFF * 2 ^ (attempt - 1), MAX_BACKOFF)
 end
 
---- Base headers plus whatever credential was configured, if any.
-local function buildHeaders(): { [string]: string }
+--- Base headers, plus the configured credential when the endpoint takes one.
+local function buildHeaders(authenticated: boolean): { [string]: string }
 	local headers = table.clone(REQUEST_HEADERS)
+
+	if not authenticated then
+		return headers
+	end
 
 	for key, value in auth.headers() do
 		headers[key] = value
@@ -91,13 +118,15 @@ local function buildHeaders(): { [string]: string }
 	return headers
 end
 
-local function requestChunk(requests: { BatchRequest }): { BatchResult }
-	local body = serde.encode("json", requests, false)
-	local headers = buildHeaders()
+--- Works through one endpoint's attempts. Returns nil when they are all spent
+--- and the caller should drop to the next rung; `isLastRung` decides whether
+--- running out is fatal instead.
+local function attemptEndpoint(endpoint: Endpoint, body: string, isLastRung: boolean): { BatchResult }?
+	local headers = buildHeaders(endpoint.authenticated)
 
 	for attempt = 1, MAX_ATTEMPTS do
 		local response = net.request({
-			url = BATCH_ASSET_URL,
+			url = endpoint.url,
 			method = "POST",
 			body = body,
 			headers = headers,
@@ -114,23 +143,59 @@ local function requestChunk(requests: { BatchRequest }): { BatchResult }
 			return parsedData
 		end
 
-		-- Out of attempts, or a failure that retrying cannot help with
-		if not RETRYABLE_STATUS_CODES[response.statusCode] or attempt == MAX_ATTEMPTS then
+		local isRetryable = RETRYABLE_STATUS_CODES[response.statusCode] == true
+		local isSpent = attempt == MAX_ATTEMPTS
+
+		-- Nothing left to fall back to, so the failure is the run's failure
+		if isLastRung and (isSpent or not isRetryable) then
 			logger.error(
 				`Asset delivery request failed: [{response.statusCode}] {response.statusMessage}: {response.body}`
 			)
 		end
 
+		if not isRetryable then
+			logger.warn(`{endpoint.url} answered [{response.statusCode}]; retrying will not help, dropping down`)
+
+			return nil
+		end
+
+		-- The wait after the final attempt still runs, giving the rate limiter
+		-- the same breathing room before the next rung as between attempts
 		local delay = backoffSeconds(response, attempt)
 
 		logger.warn(
-			`Asset delivery returned {response.statusCode}, retrying in {delay}s (attempt {attempt} of {MAX_ATTEMPTS})`
+			`{endpoint.url} answered [{response.statusCode}]; waiting {delay}s `
+				.. `(attempt {attempt} of {MAX_ATTEMPTS})`
 		)
 
 		task.wait(delay)
+
+		if isSpent then
+			return nil
+		end
 	end
 
-	-- Unreachable: the last attempt either returns or raises
+	return nil
+end
+
+local function requestChunk(requests: { BatchRequest }): { BatchResult }
+	local body = serde.encode("json", requests, false)
+
+	for index = preferredEndpoint, #ENDPOINTS do
+		local endpoint = ENDPOINTS[index]
+		local results = attemptEndpoint(endpoint, body, index == #ENDPOINTS)
+
+		if results then
+			if index ~= preferredEndpoint then
+				logger.warn(`Falling back to {endpoint.url} for the rest of this run`)
+				preferredEndpoint = index
+			end
+
+			return results
+		end
+	end
+
+	-- Unreachable: the last rung either returns or raises
 	return {}
 end
 
@@ -165,7 +230,7 @@ local function locationOf(result: BatchResult): string?
 	end
 
 	-- v1 answers with a single location and v2 with a list of them, so this
-	-- reads either shape and BATCH_ASSET_URL can be pointed at either version
+	-- reads either shape and the ladder can drop between the two versions
 	if result.location then
 		return result.location
 	end

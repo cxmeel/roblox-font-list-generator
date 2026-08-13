@@ -59,6 +59,14 @@ warns when you do.
 > scoped credential. An Open Cloud API key can be scoped and revoked
 > individually, so prefer one wherever it is sufficient.
 
+Asset delivery is throttled hard enough that a credential is not always enough
+on its own, so requests work down a ladder: the v2 endpoint with whatever
+credential is configured, retried five times with backoff reaching a minute,
+then the v1 endpoint with **no credential at all**, on the same ladder. Running
+unauthenticated against v1 is how this generator worked for a long time, so it
+is worth one genuinely different-looking attempt before giving up. Whichever
+rung answers is reused for the rest of the run.
+
 ### `generate`
 
 Builds the font list from the current Roblox Studio release and the cloud font
