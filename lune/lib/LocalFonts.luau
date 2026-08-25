@@ -1,17 +1,66 @@
 local fs = require("@lune/fs")
 local net = require("@lune/net")
 local process = require("@lune/process")
+local serde = require("@lune/serde")
 
 local Font = require("../struct/Font")
 
+local array = require("../utils/array")
 local colors = require("../utils/colors")
 local logger = require("../utils/logger")
 local ufs = require("../utils/ufs")
 
-local BACKUP_VERSION_HASH_URL =
-	"https://github.com/MaximumADHD/Roblox-Client-Tracker/raw/refs/heads/roblox/version-guid.txt"
+-- local BACKUP_VERSION_HASH_URL =
+-- 	"https://github.com/MaximumADHD/Roblox-Client-Tracker/raw/refs/heads/roblox/version-guid.txt"
+local VERSION_HASH_MAP_URL =
+	"https://github.com/MaximumADHD/Roblox-Client-Tracker/raw/refs/heads/roblox/version-history.json"
 local ROBLOX_DEPLOY_HISTORY_URL = "https://s3.amazonaws.com/setup.roblox.com/DeployHistory.txt"
 local FONT_DATA_URL = "https://s3.amazonaws.com/setup.roblox.com/version-%s-content-fonts.zip"
+
+local function fetchCurrentStudioVersionFromGitHub()
+	logger.debug("Fetching version history from Max's dump")
+
+	local response = net.request(VERSION_HASH_MAP_URL)
+	local versionMap: { [string]: string } = serde.decode("json", response.body)
+
+	local highestKey: string?
+	local highestInfo = { 0, 0, 0, 0 }
+
+	for versionNum in versionMap do
+		if not versionNum:match("^%d+%.%d+%.0%.%d+$") then
+			continue
+		end
+
+		local numParts = array.map(versionNum:split("."), function(num)
+			return tonumber(num)
+		end)
+
+		local isGreater = false
+
+		for idx = 1, 4 do
+			if numParts[idx] > highestInfo[idx] then
+				isGreater = true
+				break
+			elseif numParts[idx] < highestInfo[idx] then
+				break
+			end
+		end
+
+		if isGreater then
+			highestKey = versionNum
+			highestInfo = numParts
+		end
+	end
+
+	if highestKey then
+		local selectedVersion = versionMap[highestKey]:match("(%x+)$")
+		logger.debug(`Found v{highestKey} with hash {selectedVersion}`)
+
+		return selectedVersion
+	end
+
+	return
+end
 
 local function fetchCurrentStudioVersionHash()
 	logger.info("Fetching current studio version hash")
@@ -22,13 +71,19 @@ local function fetchCurrentStudioVersionHash()
 	local versionHash = finalEntry:match("version%-(%x+)")
 
 	if not versionHash then
-		logger.warn("Failed to parse version hash from deployment history, falling back to backup URL")
+		-- logger.warn("Failed to parse version hash from deployment history, falling back to backup URL")
 
-		local backupResponse = net.request(BACKUP_VERSION_HASH_URL)
-		versionHash = backupResponse.body:match("version%-(%x+)")
+		-- local backupResponse = net.request(BACKUP_VERSION_HASH_URL)
+		-- versionHash = backupResponse.body:match("version%-(%x+)")
+
+		logger.warn("Failed to parse version hash from deployment history, falling back to backup method")
+
+		local backupVersionHash = fetchCurrentStudioVersionFromGitHub()
+		versionHash = backupVersionHash
 
 		if not versionHash then
-			error("Failed to parse version hash from backup URL")
+			-- error("Failed to parse version hash from backup URL")
+			error("Failed to parse version hash from backup method")
 		end
 	end
 
